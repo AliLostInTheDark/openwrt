@@ -1,0 +1,144 @@
+name: Jio MT7981 firmware (JE6000 and JIDU6700)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '27 2 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/jio-mt7981-firmware.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jio-mt7981-firmware
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out PR 25563 source branch
+        uses: actions/checkout@v4
+        with:
+          ref: jioextender-je6000
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check whether firmware already exists
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          tag="jio-mt7981-$short_sha"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Building source commit: $source_sha"
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]] && gh release view "$tag" >/dev/null 2>&1; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Release $tag already exists; skipping unchanged source."
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Free disk space
+        if: steps.source.outputs.build == 'true'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/hostedtoolcache
+          sudo rm -rf /opt/az /usr/local/share/powershell /usr/local/.ghcup
+          sudo docker system prune --all --force || true
+          df -h
+
+      - name: Install build dependencies
+        if: steps.source.outputs.build == 'true'
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y             build-essential clang flex bison g++ gawk gcc-multilib gettext             git libncurses-dev libssl-dev python3 python3-pyelftools             python3-setuptools python3-packaging rsync swig unzip             zlib1g-dev file wget curl xz-utils zstd subversion             patch diffutils perl tar time cmake ninja-build
+
+      - name: Restore OpenWrt source downloads
+        if: steps.source.outputs.build == 'true'
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: openwrt-mt7981-dl-${{ runner.os }}-${{ steps.source.outputs.source_sha }}
+          restore-keys: |
+            openwrt-mt7981-dl-${{ runner.os }}-
+
+      - name: Update and install package feeds
+        if: steps.source.outputs.build == 'true'
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure both MT7981 devices
+        if: steps.source.outputs.build == 'true'
+        shell: bash
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_MULTI_PROFILE=y
+          CONFIG_TARGET_PER_DEVICE_ROOTFS=y
+          # CONFIG_TARGET_ALL_PROFILES is not set
+          CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_jioextender_je6000=y
+          CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_jiorouter_ax3000-jidu6700=y
+          CONFIG_TARGET_ROOTFS_INITRAMFS=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          EOF
+          make defconfig
+          grep -Fx 'CONFIG_TARGET_MULTI_PROFILE=y' .config
+          grep -Fx 'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_jioextender_je6000=y' .config
+          grep -Fx 'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_jiorouter_ax3000-jidu6700=y' .config
+          grep -Fx 'CONFIG_TARGET_ROOTFS_INITRAMFS=y' .config
+
+      - name: Download build sources
+        if: steps.source.outputs.build == 'true'
+        run: make download -j4
+
+      - name: Build OpenWrt firmware
+        if: steps.source.outputs.build == 'true'
+        run: make -j4
+
+      - name: Collect firmware and checksums
+        if: steps.source.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="bin/targets/mediatek/filogic"
+          mkdir -p release
+          for device in jioextender_je6000 jiorouter_ax3000-jidu6700; do
+            for type in initramfs-kernel.bin squashfs-sysupgrade.bin; do
+              file="$out/openwrt-mediatek-filogic-$device-$type"
+              test -s "$file" || { echo "::error::Missing $file"; exit 1; }
+              cp "$file" release/
+            done
+          done
+          (
+            cd release
+            sha256sum *.bin > SHA256SUMS
+          )
+          printf 'Source: %s\nCommit: %s\nDevices: JE6000, JIDU6700\n'             'https://github.com/AliLostInTheDark/openwrt/tree/jioextender-je6000'             "${{ steps.source.outputs.source_sha }}" > release/BUILD-INFO.txt
+          ls -lh release/
+
+      - name: Publish firmware to GitHub Releases
+        if: steps.source.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.source.outputs.tag }}"
+          source_sha="${{ steps.source.outputs.source_sha }}"
+          shopt -s nullglob
+          assets=(release/*.bin release/SHA256SUMS release/BUILD-INFO.txt)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${assets[@]}"               --target "$source_sha"               --title "Jio MT7981 OpenWrt ($tag)"               --notes "Automated build of OpenWrt PR #25563 for JioExtender JE6000 and JioRouter AX3000 JIDU6700. Includes initramfs and sysupgrade images for both boards. Source: $source_sha. Development firmware: verify the image and preserve calibration partitions before flashing."               --prerelease
+          fi
