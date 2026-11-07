@@ -25,6 +25,10 @@ jiorouter_initial_setup() {
 
 platform_check_image() {
 	case "$(board_name)" in
+	jiorouter,ax6000-jidu6111)
+		nand_do_platform_check "$(board_name)" "$1"
+		return $?
+		;;
 	linksys,ln6001)
 		ln6001_preflight "$1" || {
 			echo "LN6001 A/B preflight failed" >&2
@@ -50,6 +54,11 @@ platform_do_upgrade() {
 		CI_ROOTPART="rootfs"
 		CI_DATAPART="rootfs_data"
 		emmc_do_upgrade "$1"
+		;;
+	jiorouter,ax6000-jidu6111)
+		jiorouter_initial_setup || return 1
+		CI_UBIPART="ubi"
+		nand_do_upgrade "$1"
 		;;
 	linksys,ln6001)
 		ln6001_do_upgrade "$1" || return 1
