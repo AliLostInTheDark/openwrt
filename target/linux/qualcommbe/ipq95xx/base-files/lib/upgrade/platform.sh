@@ -4,8 +4,25 @@ REQUIRE_IMAGE_METADATA=1
 RAMFS_COPY_BIN='fw_printenv fw_setenv head cmp sha256sum tr mktemp'
 RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
+jiorouter_initial_setup() {
+	[ "$(rootfs_type)" = "tmpfs" ] || return 0
+
+	# Point U-Boot at the UBI volumes and set the kernel command line
+	fw_setenv -s - <<-EOF || return 1
+		bootdelay 3
+		mtdids nand0=nand0
+		mtdparts mtdparts=nand0:0xe100000@0x1700000(ubi)
+		bootcmd ubi part ubi; ubi read 0x44000000 kernel; bootm 0x44000000
+		bootargs console=ttyMSM0,115200n8 ubi.mtd=ubi ubi.block=0,rootfs
+	EOF
+}
+
 platform_check_image() {
 	case "$(board_name)" in
+	jiorouter,ax6000-jidu6111)
+		nand_do_platform_check "$(board_name)" "$1"
+		return $?
+		;;
 	linksys,ln6001)
 		ln6001_preflight "$1" || {
 			echo "LN6001 A/B preflight failed" >&2
@@ -15,6 +32,14 @@ platform_check_image() {
 		;;
 	*)
 		return 0
+		;;
+	esac
+}
+
+platform_pre_upgrade() {
+	case "$(board_name)" in
+	jiorouter,ax6000-jidu6111)
+		jiorouter_initial_setup
 		;;
 	esac
 }
@@ -31,6 +56,10 @@ platform_do_upgrade() {
 		CI_ROOTPART="rootfs"
 		CI_DATAPART="rootfs_data"
 		emmc_do_upgrade "$1"
+		;;
+	jiorouter,ax6000-jidu6111)
+		CI_UBIPART="ubi"
+		nand_do_upgrade "$1"
 		;;
 	linksys,ln6001)
 		ln6001_do_upgrade "$1" || return 1
