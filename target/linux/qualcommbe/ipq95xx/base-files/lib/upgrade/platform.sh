@@ -4,6 +4,25 @@ REQUIRE_IMAGE_METADATA=1
 RAMFS_COPY_BIN='fw_printenv fw_setenv head cmp sha256sum tr mktemp'
 RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
+jiorouter_initial_setup() {
+	[ "$(rootfs_type)" = "tmpfs" ] || return 0
+
+	local mtdnum="$(find_mtd_index 0:APPSBLENV)"
+	if [ ! "$mtdnum" ]; then
+		echo "unable to find mtd partition 0:APPSBLENV"
+		return 1
+	fi
+
+	echo "/dev/mtd$mtdnum 0x0 0x40000 0x20000" > /etc/fw_env.config
+
+	# Set up the U-Boot environment to boot OpenWrt from NAND
+	fw_setenv mtdids 'nand0=nand0' || return 1
+	fw_setenv mtdparts 'mtdparts=nand0:0xe100000@0x1700000(ubi)' || return 1
+	fw_setenv bootcmd 'ubi part ubi; ubi read 0x44000000 kernel; bootm 0x44000000' || return 1
+	fw_setenv bootdelay 3 || return 1
+	fw_setenv bootargs || return 1
+}
+
 platform_check_image() {
 	case "$(board_name)" in
 	linksys,ln6001)
