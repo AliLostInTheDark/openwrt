@@ -70,6 +70,7 @@ proto_dhcpv6_add_sendopts() {
 }
 
 proto_dhcpv6_add_reqprefix() {
+	reqprefixset=1
 	[ "$1" = "no" ] && return
 	local pfhint="$1"
 	[ -z "${pfhint##auto}" ] && pfhint=0
@@ -123,8 +124,9 @@ proto_dhcpv6_setup() {
 	local opts=""
 	[ -n "$reqaddress" ] && append opts "-N$reqaddress"
 
-	local iaidmod=''
+	local iaidmod='' reqprefixset=0
 	json_for_each_item proto_dhcpv6_add_reqprefix reqprefix opts
+	[ "$reqprefixset" = 1 ] || proto_dhcpv6_add_reqprefix auto 0 opts
 
 	case "$sendclientid" in
 		global)
