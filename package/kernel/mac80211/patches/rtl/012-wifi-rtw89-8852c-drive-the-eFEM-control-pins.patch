@@ -1,0 +1,76 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8852c: drive the eFEM control pins
+
+For RFE types above 50 the RTL8852C talks to an external front-end
+module. The vendor driver sets the PA enable, TX/RX switch and LNA-on
+pin outputs to 4, 6 and 8 (10 for RFE 53, 54, 63 and 64) and sets bit 24
+of the RFM registers, instead of the 0, 4 and 8 used for an internal
+FEM. With the internal FEM values the eFEM's PA and LNA are not enabled
+and the link is about 20 dB weaker in both directions.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -1758,6 +1758,15 @@ void rtw8852c_bb_gpio_rfm(struct rtw89_d
+ static void rtw8852c_bb_gpio_init(struct rtw89_dev *rtwdev)
+ {
+ 	static const u32 cr_bases[] = {0x5800, 0x7800};
++	u8 rfe_type = rtwdev->efuse.rfe_type;
++	/* With an external FEM the PA enable, TX/RX switch and LNA-on pins
++	 * need other output values than the internal FEM ones.
++	 */
++	bool efem = rtw89_rfe_has_efem(rtwdev);
++	u8 pape_val = efem ? 0x4 : 0x0;
++	u8 trsw_val = efem ? 0x6 : 0x4;
++	u8 lnaon_val = (efem && (rfe_type == 53 || rfe_type == 54 ||
++				 rfe_type == 63 || rfe_type == 64)) ? 0xa : 0x8;
+ 	u32 addr;
+ 	u8 i;
+ 
+@@ -1768,6 +1777,8 @@ static void rtw8852c_bb_gpio_init(struct
+ 		rtw89_phy_write32_clr(rtwdev, (addr | 0x68), B_P0_TRSW_SO_A2);
+ 		rtw89_phy_write32(rtwdev, (addr | 0x80), 0x77777777);
+ 		rtw89_phy_write32(rtwdev, (addr | 0x84), 0x77777777);
++		if (efem)
++			rtw89_phy_write32_set(rtwdev, (addr | 0x94), BIT(24));
+ 	}
+ 
+ 	rtw89_phy_write32(rtwdev, R_RFE_E_A2, 0xffffffff);
+@@ -1793,13 +1804,13 @@ static void rtw8852c_bb_gpio_init(struct
+ 	rtw8852c_bb_gpio_trsw(rtwdev, RF_PATH_B, 1, 1, 0, 1, 0);
+ 	rtw8852c_bb_gpio_trsw(rtwdev, RF_PATH_B, 1, 1, 1, 1, 0);
+ 
+-	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_A, PAPE_RFM, 0, 0, 0, 0x0);
+-	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_A, TRSW_RFM, 0, 0, 0, 0x4);
+-	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_A, LNAON_RFM, 0, 0, 0, 0x8);
+-
+-	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, PAPE_RFM, 0, 0, 0, 0x0);
+-	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, TRSW_RFM, 0, 0, 0, 0x4);
+-	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, LNAON_RFM, 0, 0, 0, 0x8);
++	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_A, PAPE_RFM, 0, 0, 0, pape_val);
++	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_A, TRSW_RFM, 0, 0, 0, trsw_val);
++	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_A, LNAON_RFM, 0, 0, 0, lnaon_val);
++
++	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, PAPE_RFM, 0, 0, 0, pape_val);
++	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, TRSW_RFM, 0, 0, 0, trsw_val);
++	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, LNAON_RFM, 0, 0, 0, lnaon_val);
+ }
+ 
+ static void rtw8852c_bb_macid_ctrl_init(struct rtw89_dev *rtwdev,
+--- a/drivers/net/wireless/realtek/rtw89/core.h
++++ b/drivers/net/wireless/realtek/rtw89/core.h
+@@ -8051,6 +8051,14 @@ static inline bool rtw89_is_rtl885xb(str
+ 	return false;
+ }
+ 
++/* RFE types above 50 drive an external front-end module; 0xff is blank efuse */
++static inline bool rtw89_rfe_has_efem(struct rtw89_dev *rtwdev)
++{
++	u8 rfe_type = rtwdev->efuse.rfe_type;
++
++	return rfe_type > 50 && rfe_type != 0xff;
++}
++
+ static inline u32 rtw89_bytes_to_mbps(u64 bytes, enum rtw89_tfc_interval interval)
+ {
+ 	switch (interval) {

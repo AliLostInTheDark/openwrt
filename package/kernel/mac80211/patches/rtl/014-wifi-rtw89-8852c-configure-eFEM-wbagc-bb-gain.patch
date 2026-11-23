@@ -1,0 +1,143 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8852c: configure eFEM wideband AGC BB gain
+
+For RFE types above 50 with an external front-end module, the BB gain
+table contains cfg_type 4 entries that configure the wideband AGC RX
+gain error and LNA/TIA index mapping registers on 5 GHz and 6 GHz.
+Mainline rtw89 previously only skipped cfg_type 4 for rfe_type < 50 and
+warned on every entry when rfe_type >= 50.
+
+Parse cfg_type 4 (subtypes 0..5) into rtw89_phy_bb_gain_info and program
+the corresponding per-path BB registers in rtw8852c_set_gain_error()
+when operating on 5 GHz / 6 GHz with an external FEM (rfe_type > 50).
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+ drivers/net/wireless/realtek/rtw89/core.h     |  5 +++
+ drivers/net/wireless/realtek/rtw89/phy.c      | 41 ++++++++++++++++++-
+ drivers/net/wireless/realtek/rtw89/rtw8852c.c | 44 +++++++++++++++++++
+ 3 files changed, 88 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/wireless/realtek/rtw89/core.h
++++ b/drivers/net/wireless/realtek/rtw89/core.h
+@@ -6140,6 +6140,11 @@ struct rtw89_phy_bb_gain_info {
+ 		      [RTW89_BB_RXSC_NUM_80];
+ 	s8 rpl_ofst_160[RTW89_BB_GAIN_BAND_NR][RF_PATH_MAX]
+ 		       [RTW89_BB_RXSC_NUM_160];
++	u32 wbagc_0[RTW89_BB_GAIN_BAND_NR][RF_PATH_MAX];
++	u8 wbagc_1_2[RTW89_BB_GAIN_BAND_NR][RF_PATH_MAX][16];
++	u32 wbagc_3[RTW89_BB_GAIN_BAND_NR][RF_PATH_MAX];
++	u32 wbagc_4[RTW89_BB_GAIN_BAND_NR][RF_PATH_MAX];
++	u16 wbagc_5[RTW89_BB_GAIN_BAND_NR][RF_PATH_MAX];
+ };
+ 
+ struct rtw89_phy_bb_gain_info_be {
+--- a/drivers/net/wireless/realtek/rtw89/phy.c
++++ b/drivers/net/wireless/realtek/rtw89/phy.c
+@@ -1574,6 +1574,45 @@ rtw89_phy_cfg_bb_gain_op1db(struct rtw89
+ 	}
+ }
+ 
++static void
++rtw89_phy_cfg_bb_gain_wbagc(struct rtw89_dev *rtwdev,
++			    union rtw89_phy_bb_gain_arg arg, u32 data)
++{
++	struct rtw89_phy_bb_gain_info *gain = &rtwdev->bb_gain.ax;
++	u8 type = arg.type;
++	u8 path = arg.path;
++	u8 gband = arg.gain_band;
++	int i;
++
++	switch (type) {
++	case 0:
++		gain->wbagc_0[gband][path] = data;
++		break;
++	case 1:
++		for (i = 0; i < 8; i++, data >>= 4)
++			gain->wbagc_1_2[gband][path][i] = data & 0x7;
++		break;
++	case 2:
++		for (i = 8; i < 16; i++, data >>= 4)
++			gain->wbagc_1_2[gband][path][i] = data & 0x7;
++		break;
++	case 3:
++		gain->wbagc_3[gband][path] = data;
++		break;
++	case 4:
++		gain->wbagc_4[gband][path] = data;
++		break;
++	case 5:
++		gain->wbagc_5[gband][path] = data & 0xffff;
++		break;
++	default:
++		rtw89_warn(rtwdev,
++			   "bb gain wbagc {0x%x:0x%x} with unknown type: %d\n",
++			   arg.addr, data, type);
++		break;
++	}
++}
++
+ static void rtw89_phy_config_bb_gain_ax(struct rtw89_dev *rtwdev,
+ 					const struct rtw89_reg2_def *reg,
+ 					enum rtw89_rf_path rf_path,
+@@ -1611,7 +1650,8 @@ static void rtw89_phy_config_bb_gain_ax(
+ 		/* This cfg_type is only used by rfe_type >= 50 with eFEM */
+ 		if (efuse->rfe_type < 50)
+ 			break;
+-		fallthrough;
++		rtw89_phy_cfg_bb_gain_wbagc(rtwdev, arg, reg->data);
++		break;
+ 	default:
+ 		rtw89_warn(rtwdev,
+ 			   "bb gain {0x%x:0x%x} with unknown cfg type: %d\n",
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -1071,6 +1071,48 @@ static void rtw8852c_set_gain_error(stru
+ 		val = gain->tia_gain[gain_band][path][i];
+ 		rtw89_phy_write32_mask(rtwdev, reg, mask, val);
+ 	}
++
++	if (subband != RTW89_CH_2G && rtw89_rfe_has_efem(rtwdev)) {
++		static const u32 reg_wbagc_0[2] = {0x4734, 0x4aa0};
++		static const u32 reg_wbagc_th[2] = {0x46a0, 0x49f4};
++		static const u32 reg_wbagc_margin[2] = {0x46bc, 0x4a70};
++		static const u32 reg_wbagc_steps_lo[2] = {0x4720, 0x4a74};
++		static const u32 reg_wbagc_steps_hi[2] = {0x4724, 0x4a78};
++		static const u32 reg_wbagc_err_lo[2] = {0x46a8, 0x4a5c};
++		static const u32 reg_wbagc_err_hi[2] = {0x46ac, 0x4a60};
++		static const u32 reg_wbagc_mode[2] = {0x45dc, 0x4740};
++		u32 val_steps = 0;
++
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_0[path],
++				       0x003fffc0, gain->wbagc_0[gain_band][path]);
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_th[path],
++				       0xe0000000, gain->wbagc_1_2[gain_band][path][0]);
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_margin[path],
++				       0x3f000000,
++				       gain->wbagc_1_2[gain_band][path][1] |
++				       (gain->wbagc_1_2[gain_band][path][2] << 3));
++
++		for (i = 0; i < 10; i++)
++			val_steps |= (gain->wbagc_1_2[gain_band][path][3 + i] & 0x7) << (i * 3);
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_steps_lo[path],
++				       0x3fffffff, val_steps);
++
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_steps_hi[path],
++				       0x000001ff,
++				       gain->wbagc_1_2[gain_band][path][13] |
++				       (gain->wbagc_1_2[gain_band][path][14] << 3) |
++				       (gain->wbagc_1_2[gain_band][path][15] << 6));
++
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_err_lo[path],
++				       0x7fff8000, gain->wbagc_3[gain_band][path] & 0xffff);
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_err_hi[path],
++				       0x0fffffff,
++				       (gain->wbagc_3[gain_band][path] >> 16) |
++				       ((gain->wbagc_4[gain_band][path] & 0xfff) << 16));
++
++		rtw89_phy_write32_mask(rtwdev, reg_wbagc_mode[path],
++				       0x0000ffff, gain->wbagc_5[gain_band][path]);
++	}
+ }
+ 
+ static void rtw8852c_set_gain_offset(struct rtw89_dev *rtwdev,

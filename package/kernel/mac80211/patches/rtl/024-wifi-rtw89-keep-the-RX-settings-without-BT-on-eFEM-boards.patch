@@ -1,0 +1,30 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: keep the RX settings without BT on eFEM boards
+
+rtw8852c_btc_set_rfe() takes an even RFE type for a module with a
+dedicated BT antenna. The coex then runs at the non-shared-antenna trx
+level, whose RX gain setting calls ctrl_nbtg_bt_tx(true): it forces the
+RX FIR type and changes the RX baseband and LNA settings. On the
+RTL8852CE this stops all reception at 80 and 160 MHz.
+
+Boards with an external FEM (RFE type above 50) are access points
+without BT, and the vendor driver leaves the FIR type alone on them.
+Keep the default RX settings there.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -3068,6 +3068,12 @@ static void rtw8852c_btc_set_wl_rx_gain(
+ {
+ 	struct rtw89_btc *btc = &rtwdev->btc;
+ 
++	/* eFEM boards have no BT. The BT free-run RX settings force the RX
++	 * FIR type, which stops all reception at 80 and 160 MHz.
++	 */
++	if (rtw89_rfe_has_efem(rtwdev))
++		level = 0;
++
+ 	switch (level) {
+ 	case 0: /* original */
+ 	default:

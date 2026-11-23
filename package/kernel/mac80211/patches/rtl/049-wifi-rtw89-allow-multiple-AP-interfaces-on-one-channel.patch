@@ -1,0 +1,85 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: allow up to RTW89_PORT_NUM AP interfaces on one channel
+
+The single-channel interface combination in rtw89 groups NL80211_IFTYPE_AP
+with P2P client/GO under a limit of 1, and RTW89_MAX_INTERFACE_NUM is
+hardcoded to 2. As a result, bringing up additional AP SSIDs on the same
+radio fails in hostapd with "Could not set interface flags (UP): Resource
+busy".
+
+The driver and AX MAC hardware already support up to RTW89_PORT_NUM (5)
+concurrent interfaces: each vif acquires its own hardware port from
+rtwdev->hw_port (with dedicated port registers, HIQ window, BSS color, and
+firmware H2C beacon slot), and rtw89_mac_port_tsf_resync_all() staggers
+their beacons across the beacon interval.
+
+Raise RTW89_MAX_INTERFACE_NUM to RTW89_PORT_NUM (5), give NL80211_IFTYPE_AP
+its own single-channel limit of RTW89_MAX_INTERFACE_NUM (keeping P2P
+client/GO at 1), keep the 2-channel MCC combination capped at 2 interfaces,
+and handle more than two active single-channel roles in
+__rtw89_query_mr_wtype() and __rtw89_query_mr_wmode() so coex queries do
+not emit spurious unhandled-count warnings.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/core.h
++++ b/drivers/net/wireless/realtek/rtw89/core.h
+@@ -5275,7 +5275,7 @@
+ 	RTW89_ENTITY_MODE_UNHANDLED = -ESRCH,
+ };
+ 
+-#define RTW89_MAX_INTERFACE_NUM 2
++#define RTW89_MAX_INTERFACE_NUM RTW89_PORT_NUM
+ 
+ /* only valid when running with chanctx_ops */
+ struct rtw89_entity_mgnt {
+--- a/drivers/net/wireless/realtek/rtw89/core.c
++++ b/drivers/net/wireless/realtek/rtw89/core.c
+@@ -175,10 +175,13 @@
+ 		.types = BIT(NL80211_IFTYPE_STATION),
+ 	},
+ 	{
++		.max = RTW89_MAX_INTERFACE_NUM,
++		.types = BIT(NL80211_IFTYPE_AP),
++	},
++	{
+ 		.max = 1,
+ 		.types = BIT(NL80211_IFTYPE_P2P_CLIENT) |
+-			 BIT(NL80211_IFTYPE_P2P_GO) |
+-			 BIT(NL80211_IFTYPE_AP),
++			 BIT(NL80211_IFTYPE_P2P_GO),
+ 	},
+ };
+ 
+@@ -201,7 +204,7 @@
+ 	{
+ 		.limits = rtw89_iface_limits_mcc,
+ 		.n_limits = ARRAY_SIZE(rtw89_iface_limits_mcc),
+-		.max_interfaces = RTW89_MAX_INTERFACE_NUM,
++		.max_interfaces = 2,
+ 		.num_different_channels = 2,
+ 	},
+ };
+--- a/drivers/net/wireless/realtek/rtw89/chan.c
++++ b/drivers/net/wireless/realtek/rtw89/chan.c
+@@ -3072,6 +3072,8 @@
+ 		}
+ 		break;
+ 	default:
++		if (!num_mld)
++			return RTW89_MR_WTYPE_NONMLD_NONMLD;
+ 		break;
+ 	}
+ 
+@@ -3127,6 +3129,10 @@
+ 			return RTW89_MR_WMODE_1AP_1CLIENT;
+ 		break;
+ 	default:
++		if (num[NL80211_IFTYPE_STATION] && num[NL80211_IFTYPE_AP])
++			return RTW89_MR_WMODE_1AP_1CLIENT;
++		if (num[NL80211_IFTYPE_AP] >= 2)
++			return RTW89_MR_WMODE_2APS;
+ 		break;
+ 	}
+ 
+ 	rtw89_warn(rtwdev, "%s: unhandled cnt %u\n", __func__, cnt);

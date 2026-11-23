@@ -1,0 +1,25 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8852c: clear R_AX_PATH_COM9 like the vendor driver
+
+rtw8852c_ctrl_tx_path_tmac() writes the shared AX default 0x7c0 to
+R_AX_PATH_COM9 (0xd824). The vendor driver writes 0 there for RTL8852C
+outside DBCC (halbb_ctrl_tx_path_tmac_8852c()) and keeps 0x7c0 only for
+RTL8192XB, and stock firmware reads 0 on the HG325AX30. Use 0 for
+RTL8852C so the T-MAC path registers match the vendor. Every other
+PATH_COM word already matches.
+
+No change was measured: stock with 0 shows the same per-start 2SS loss
+that patch 046 works around.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -1423,7 +1423,7 @@
+ 		{R_AX_PATH_COM6, AX_PATH_COM6_DFVAL},
+ 		{R_AX_PATH_COM7, AX_PATH_COM7_DFVAL},
+ 		{R_AX_PATH_COM8, AX_PATH_COM8_DFVAL},
+-		{R_AX_PATH_COM9, AX_PATH_COM9_DFVAL},
++		{R_AX_PATH_COM9, 0},
+ 		{R_AX_PATH_COM10, AX_PATH_COM10_DFVAL},
+ 		{R_AX_PATH_COM11, AX_PATH_COM11_DFVAL},
+ 	};

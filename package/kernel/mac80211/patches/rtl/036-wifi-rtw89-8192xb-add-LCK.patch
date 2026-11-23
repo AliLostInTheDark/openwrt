@@ -1,0 +1,557 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8192xb: add LCK
+
+Keep the thermal value at init and redo the LO calibration from the RF
+track work once either path drifts by 8 or more, as Realtek's
+rtk_wifi6_ap driver does for this chip. The calibration puts both paths
+in RX mode, retriggers path A and waits for the LPF to go idle.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb.c
+@@ -1043,6 +1043,7 @@ static void rtw8192xb_rfk_init(struct rtw89_dev *rtwdev)
+ 	rtwdev->is_tssi_mode[RF_PATH_A] = false;
+ 	rtwdev->is_tssi_mode[RF_PATH_B] = false;
+ 	memset(rfk_mcc, 0, sizeof(*rfk_mcc));
++	rtw8192xb_lck_init(rtwdev);
+ 
+ 	rtw8192xb_rck(rtwdev);
+ 	rtw8192xb_dack(rtwdev, RTW89_CHANCTX_0);
+@@ -1065,6 +1066,11 @@ static void rtw8192xb_rfk_channel(struct rtw89_dev *rtwdev,
+ 	rtw89_btc_ntfy_conn_rfk(rtwdev, false);
+ }
+ 
++static void rtw8192xb_rfk_track(struct rtw89_dev *rtwdev)
++{
++	rtw8192xb_lck_track(rtwdev);
++}
++
+ static void rtw8192xb_bb_cfg_rx_path(struct rtw89_dev *rtwdev, u8 rx_path)
+ {
+ 	u32 rst_mask0 = B_P0_TXPW_RSTB_MANON | B_P0_TXPW_RSTB_TSSI;
+@@ -1259,7 +1265,7 @@ static const struct rtw89_chip_ops rtw8192xb_chip_ops = {
+ 	.rfk_channel		= rtw8192xb_rfk_channel,
+ 	.rfk_band_changed	= NULL,
+ 	.rfk_scan		= NULL,
+-	.rfk_track		= NULL,
++	.rfk_track		= rtw8192xb_rfk_track,
+ 	.power_trim		= rtw8852cx_power_trim,
+ 	.set_txpwr		= rtw8852cx_set_txpwr,
+ 	.set_txpwr_ctrl		= rtw8852cx_set_txpwr_ctrl,
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.c
+@@ -1175,6 +1175,79 @@ void rtw8192xb_iqk(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy_idx,
+ 	rtw89_btc_ntfy_wl_rfk(rtwdev, phy_map, BTC_WRFKT_IQK, BTC_WRFK_STOP);
+ }
+ 
++#define RTW8192XB_LCK_TH 8
++
++static void _lck_keep_thermal(struct rtw89_dev *rtwdev)
++{
++	struct rtw89_lck_info *lck = &rtwdev->lck;
++	u8 path;
++
++	for (path = RF_PATH_A; path < RF_PATH_NUM_8192XB; path++)
++		lck->thermal[path] =
++			ewma_thermal_read(&rtwdev->phystat.avg_thermal[path]);
++}
++
++static void _lck(struct rtw89_dev *rtwdev)
++{
++	u32 rf_reg5[RF_PATH_NUM_8192XB], rf_reg0[RF_PATH_NUM_8192XB];
++	u32 rf_reg18, val;
++	u8 path;
++	int ret;
++
++	rtw89_debug(rtwdev, RTW89_DBG_RFK_TRACK, "[LCK] DO LCK\n");
++
++	rf_reg18 = rtw89_read_rf(rtwdev, RF_PATH_A, RR_CFGCH, RFREG_MASK);
++	for (path = RF_PATH_A; path < RF_PATH_NUM_8192XB; path++) {
++		rf_reg5[path] = rtw89_read_rf(rtwdev, path, RR_RSV1, RFREG_MASK);
++		rf_reg0[path] = rtw89_read_rf(rtwdev, path, RR_MOD, RFREG_MASK);
++		rtw89_write_rf(rtwdev, path, RR_MOD, RR_MOD_MASK, RR_MOD_V_RX);
++		rtw89_write_rf(rtwdev, path, RR_RSV1, RFREG_MASK, 0x0);
++	}
++
++	rtw89_write_rf(rtwdev, RF_PATH_A, RR_LCK_TRG, RR_LCK_TRGSEL, 0x1);
++	rtw89_write_rf(rtwdev, RF_PATH_A, RR_CFGCH, RFREG_MASK, rf_reg18);
++	rtw89_write_rf(rtwdev, RF_PATH_A, RR_LCK_TRG, RR_LCK_TRGSEL, 0x0);
++
++	ret = read_poll_timeout_atomic(rtw89_read_rf, val, !val, 1, 1000, false,
++				       rtwdev, RF_PATH_A, RR_LPF, RR_LPF_BUSY);
++	if (ret)
++		rtw89_debug(rtwdev, RTW89_DBG_RFK_TRACK, "[LCK] LCK timeout\n");
++
++	for (path = RF_PATH_A; path < RF_PATH_NUM_8192XB; path++) {
++		rtw89_write_rf(rtwdev, path, RR_MOD, RFREG_MASK, rf_reg0[path]);
++		rtw89_write_rf(rtwdev, path, RR_RSV1, RFREG_MASK, rf_reg5[path]);
++	}
++
++	_lck_keep_thermal(rtwdev);
++}
++
++void rtw8192xb_lck_track(struct rtw89_dev *rtwdev)
++{
++	struct rtw89_lck_info *lck = &rtwdev->lck;
++	u8 cur_thermal;
++	int delta;
++	u8 path;
++
++	for (path = RF_PATH_A; path < RF_PATH_NUM_8192XB; path++) {
++		cur_thermal = ewma_thermal_read(&rtwdev->phystat.avg_thermal[path]);
++		delta = abs((int)cur_thermal - lck->thermal[path]);
++
++		rtw89_debug(rtwdev, RTW89_DBG_RFK_TRACK,
++			    "[LCK] path=%d current thermal=0x%x delta=0x%x\n",
++			    path, cur_thermal, delta);
++
++		if (delta >= RTW8192XB_LCK_TH) {
++			_lck(rtwdev);
++			return;
++		}
++	}
++}
++
++void rtw8192xb_lck_init(struct rtw89_dev *rtwdev)
++{
++	_lck_keep_thermal(rtwdev);
++}
++
+ /* The vendor driver skips DPK with an external PA and keeps the DPD off. */
+ void rtw8192xb_dpk(struct rtw89_dev *rtwdev)
+ {
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.h
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.h
+@@ -13,6 +13,8 @@ void rtw8192xb_dack(struct rtw89_dev *rtwdev, enum rtw89_chanctx_idx chanctx_idx
+ void rtw8192xb_rx_dck(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy);
+ void rtw8192xb_iqk(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy_idx,
+ 		   enum rtw89_chanctx_idx chanctx_idx);
++void rtw8192xb_lck_init(struct rtw89_dev *rtwdev);
++void rtw8192xb_lck_track(struct rtw89_dev *rtwdev);
+ void rtw8192xb_dpk(struct rtw89_dev *rtwdev);
+ void rtw8192xb_set_channel_rf(struct rtw89_dev *rtwdev,
+ 			      const struct rtw89_chan *chan,
+--- /dev/null
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk_table.c
+@@ -0,0 +1,379 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
++/* Copyright(c) 2019-2022  Realtek Corporation
++ */
++
++#include "rtw8192xb_rfk_table.h"
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_sys_defs[] = {
++	RTW89_DECL_RFK_WM(0x12bc, 0x000ffff0, 0xb5b5),
++	RTW89_DECL_RFK_WM(0x32bc, 0x000ffff0, 0xb5b5),
++	RTW89_DECL_RFK_WM(0x0300, 0xff000000, 0x16),
++	RTW89_DECL_RFK_WM(0x0304, 0x0000ffff, 0x1f19),
++	RTW89_DECL_RFK_WM(0x0308, 0xff000000, 0x1f),
++	RTW89_DECL_RFK_WM(0x0314, 0xffff0000, 0x2041),
++	RTW89_DECL_RFK_WM(0x0318, 0xffffffff, 0x20012041),
++	RTW89_DECL_RFK_WM(0x0324, 0xffff0000, 0x2001),
++	RTW89_DECL_RFK_WM(0x0020, 0x00006000, 0x3),
++	RTW89_DECL_RFK_WM(0x0024, 0x00006000, 0x3),
++	RTW89_DECL_RFK_WM(0x0704, 0xffff0000, 0x601e),
++	RTW89_DECL_RFK_WM(0x2704, 0xffff0000, 0x601e),
++	RTW89_DECL_RFK_WM(0x0700, 0xf0000000, 0x4),
++	RTW89_DECL_RFK_WM(0x2700, 0xf0000000, 0x4),
++	RTW89_DECL_RFK_WM(0x0650, 0x3c000000, 0x0),
++	RTW89_DECL_RFK_WM(0x2650, 0x3c000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_sys_defs);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_sys_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x120c, 0x000000ff, 0x33),
++	RTW89_DECL_RFK_WM(0x12c0, 0x0ff00000, 0x33),
++	RTW89_DECL_RFK_WM(0x58f8, 0x40000000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_sys_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_sys_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x320c, 0x000000ff, 0x33),
++	RTW89_DECL_RFK_WM(0x32c0, 0x0ff00000, 0x33),
++	RTW89_DECL_RFK_WM(0x78f8, 0x40000000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_sys_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_txpwr_ctrl_bb_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x566c, 0x00001000, 0x0),
++	RTW89_DECL_RFK_WM(0x5800, 0xffffffff, 0x3f807f),
++	RTW89_DECL_RFK_WM(0x580c, 0x0000007f, 0x40),
++	RTW89_DECL_RFK_WM(0x580c, 0x0fffff00, 0x40),
++	RTW89_DECL_RFK_WM(0x5810, 0xffffffff, 0x59010000),
++	RTW89_DECL_RFK_WM(0x5818, 0xffffffff, 0x2c1800),
++	RTW89_DECL_RFK_WM(0x5820, 0xffffffff, 0x80),
++	RTW89_DECL_RFK_WM(0x58e8, 0x0000003f, 0x3),
++	RTW89_DECL_RFK_WM(0x5860, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5864, 0x07ffffff, 0x801ff),
++	RTW89_DECL_RFK_WM(0x5898, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x589c, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x58a4, 0x000000ff, 0x16),
++	RTW89_DECL_RFK_WM(0x58b0, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x58b4, 0x7fffffff, 0xa002000),
++	RTW89_DECL_RFK_WM(0x58b8, 0x7fffffff, 0x7628),
++	RTW89_DECL_RFK_WM(0x58bc, 0x07ffffff, 0x7f7807f),
++	RTW89_DECL_RFK_WM(0x58c0, 0xfffe0000, 0x3f),
++	RTW89_DECL_RFK_WM(0x58c4, 0xffffffff, 0x3ffff),
++	RTW89_DECL_RFK_WM(0x58c8, 0x00ffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x58c8, 0xf0000000, 0x0),
++	RTW89_DECL_RFK_WM(0x58cc, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x58d0, 0x07ffffff, 0x2008101),
++	RTW89_DECL_RFK_WM(0x58d4, 0x000000ff, 0x0),
++	RTW89_DECL_RFK_WM(0x58d4, 0x0003fe00, 0xff),
++	RTW89_DECL_RFK_WM(0x58d4, 0x07fc0000, 0x100),
++	RTW89_DECL_RFK_WM(0x58dc, 0x0001ffff, 0x807f),
++	RTW89_DECL_RFK_WM(0x58dc, 0xfff00000, 0x800),
++	RTW89_DECL_RFK_WM(0x58f0, 0x0003ffff, 0x1ff),
++	RTW89_DECL_RFK_WM(0x58f4, 0x000fffff, 0x0),
++	RTW89_DECL_RFK_WM(0x58f8, 0x000fffff, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_txpwr_ctrl_bb_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_txpwr_ctrl_bb_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7800, 0xffffffff, 0x3f807f),
++	RTW89_DECL_RFK_WM(0x780c, 0x0000007f, 0x40),
++	RTW89_DECL_RFK_WM(0x780c, 0x0fffff00, 0x40),
++	RTW89_DECL_RFK_WM(0x7810, 0xffffffff, 0x59010000),
++	RTW89_DECL_RFK_WM(0x7818, 0xffffffff, 0x2c1800),
++	RTW89_DECL_RFK_WM(0x7820, 0xffffffff, 0x80),
++	RTW89_DECL_RFK_WM(0x78e8, 0x0000003f, 0x3),
++	RTW89_DECL_RFK_WM(0x7860, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7864, 0x07ffffff, 0x801ff),
++	RTW89_DECL_RFK_WM(0x7898, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x789c, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x78a4, 0x000000ff, 0x16),
++	RTW89_DECL_RFK_WM(0x78b0, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x78b4, 0x7fffffff, 0xa002000),
++	RTW89_DECL_RFK_WM(0x78b8, 0x7fffffff, 0x7628),
++	RTW89_DECL_RFK_WM(0x78bc, 0x07ffffff, 0x7f7807f),
++	RTW89_DECL_RFK_WM(0x78c0, 0xfffe0000, 0x3f),
++	RTW89_DECL_RFK_WM(0x78c4, 0xffffffff, 0x3ffff),
++	RTW89_DECL_RFK_WM(0x78c8, 0x00ffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x78c8, 0xf0000000, 0x0),
++	RTW89_DECL_RFK_WM(0x78cc, 0xffffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x78d0, 0x07ffffff, 0x2008101),
++	RTW89_DECL_RFK_WM(0x78d4, 0x000000ff, 0x0),
++	RTW89_DECL_RFK_WM(0x78d4, 0x0003fe00, 0xff),
++	RTW89_DECL_RFK_WM(0x78d4, 0x07fc0000, 0x100),
++	RTW89_DECL_RFK_WM(0x78dc, 0x0001ffff, 0x807f),
++	RTW89_DECL_RFK_WM(0x78dc, 0xfff00000, 0x800),
++	RTW89_DECL_RFK_WM(0x78f0, 0x0003ffff, 0x1ff),
++	RTW89_DECL_RFK_WM(0x78f4, 0x000fffff, 0x0),
++	RTW89_DECL_RFK_WM(0x78f8, 0x000fffff, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_txpwr_ctrl_bb_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_txpwr_ctrl_bb_he_tb_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x58a0, 0xffffffff, 0xfe),
++	RTW89_DECL_RFK_WM(0x58e4, 0x0000007f, 0x1f),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_txpwr_ctrl_bb_he_tb_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_txpwr_ctrl_bb_he_tb_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x78a0, 0xffffffff, 0xfe),
++	RTW89_DECL_RFK_WM(0x78e4, 0x0000007f, 0x1f),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_txpwr_ctrl_bb_he_tb_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_dck_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x580c, 0x0fff0000, 0x0),
++	RTW89_DECL_RFK_WM(0x5814, 0x00001000, 0x1),
++	RTW89_DECL_RFK_WM(0x5814, 0x00004000, 0x1),
++	RTW89_DECL_RFK_WM(0x5814, 0x00038000, 0x5),
++	RTW89_DECL_RFK_WM(0x5814, 0x18000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_dck_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_dck_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x780c, 0x0fff0000, 0x0),
++	RTW89_DECL_RFK_WM(0x7814, 0x00001000, 0x1),
++	RTW89_DECL_RFK_WM(0x7814, 0x00004000, 0x1),
++	RTW89_DECL_RFK_WM(0x7814, 0x00038000, 0x5),
++	RTW89_DECL_RFK_WM(0x7814, 0x18000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_dck_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_set_bbgain_split_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5818, 0x08000000, 0x1),
++	RTW89_DECL_RFK_WM(0x58d4, 0xf0000000, 0x7),
++	RTW89_DECL_RFK_WM(0x58f0, 0x000c0000, 0x1),
++	RTW89_DECL_RFK_WM(0x58f0, 0xfff00000, 0x400),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_set_bbgain_split_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_set_bbgain_split_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7818, 0x08000000, 0x1),
++	RTW89_DECL_RFK_WM(0x78d4, 0xf0000000, 0x7),
++	RTW89_DECL_RFK_WM(0x78f0, 0x000c0000, 0x1),
++	RTW89_DECL_RFK_WM(0x78f0, 0xfff00000, 0x400),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_set_bbgain_split_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_slope_cal_org_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5608, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x560c, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x5610, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x5614, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x5618, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x561c, 0x000001ff, 0x8),
++	RTW89_DECL_RFK_WM(0x561c, 0xffff0000, 0x808),
++	RTW89_DECL_RFK_WM(0x5620, 0xffffffff, 0x8080808),
++	RTW89_DECL_RFK_WM(0x5624, 0xffffffff, 0x8080808),
++	RTW89_DECL_RFK_WM(0x5628, 0xffffffff, 0x8080808),
++	RTW89_DECL_RFK_WM(0x562c, 0x0000ffff, 0x808),
++	RTW89_DECL_RFK_WM(0x581c, 0x00100000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_slope_cal_org_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_slope_cal_org_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7608, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x760c, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x7610, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x7614, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x7618, 0x07ffffff, 0x201008),
++	RTW89_DECL_RFK_WM(0x761c, 0x000001ff, 0x8),
++	RTW89_DECL_RFK_WM(0x761c, 0xffff0000, 0x808),
++	RTW89_DECL_RFK_WM(0x7620, 0xffffffff, 0x8080808),
++	RTW89_DECL_RFK_WM(0x7624, 0xffffffff, 0x8080808),
++	RTW89_DECL_RFK_WM(0x7628, 0xffffffff, 0x8080808),
++	RTW89_DECL_RFK_WM(0x762c, 0x0000ffff, 0x808),
++	RTW89_DECL_RFK_WM(0x781c, 0x00100000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_slope_cal_org_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_set_aligk_default_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5604, 0x80000000, 0x1),
++	RTW89_DECL_RFK_WM(0x5600, 0x3fffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x5604, 0x003fffff, 0x2d2721),
++	RTW89_DECL_RFK_WM(0x5630, 0x3fffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x5634, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x5634, 0x000ffc00, 0x0),
++	RTW89_DECL_RFK_WM(0x5634, 0x3ff00000, 0x0),
++	RTW89_DECL_RFK_WM(0x5638, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x5638, 0x000ffc00, 0x0),
++	RTW89_DECL_RFK_WM(0x563c, 0x3fffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x5640, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x5640, 0x000ffc00, 0x0),
++	RTW89_DECL_RFK_WM(0x5640, 0x3ff00000, 0x0),
++	RTW89_DECL_RFK_WM(0x5644, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x5644, 0x000ffc00, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_set_aligk_default_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_set_aligk_default_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7604, 0x80000000, 0x1),
++	RTW89_DECL_RFK_WM(0x7600, 0x3fffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x7604, 0x003fffff, 0x2d2721),
++	RTW89_DECL_RFK_WM(0x7630, 0x3fffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x7634, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x7634, 0x000ffc00, 0x0),
++	RTW89_DECL_RFK_WM(0x7634, 0x3ff00000, 0x0),
++	RTW89_DECL_RFK_WM(0x7638, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x7638, 0x000ffc00, 0x0),
++	RTW89_DECL_RFK_WM(0x763c, 0x3fffffff, 0x0),
++	RTW89_DECL_RFK_WM(0x7640, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x7640, 0x000ffc00, 0x0),
++	RTW89_DECL_RFK_WM(0x7640, 0x3ff00000, 0x0),
++	RTW89_DECL_RFK_WM(0x7644, 0x000003ff, 0x0),
++	RTW89_DECL_RFK_WM(0x7644, 0x000ffc00, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_set_aligk_default_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_slope_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5820, 0x40000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5818, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5814, 0x00000800, 0x1),
++	RTW89_DECL_RFK_WM(0x581c, 0x20000000, 0x1),
++	RTW89_DECL_RFK_WM(0x58e8, 0x0000003f, 0xf),
++	RTW89_DECL_RFK_WM(0x581c, 0x000003ff, 0x280),
++	RTW89_DECL_RFK_WM(0x581c, 0x000ffc00, 0x200),
++	RTW89_DECL_RFK_WM(0x58b8, 0x007f0000, 0x0),
++	RTW89_DECL_RFK_WM(0x58b8, 0x7f000000, 0x0),
++	RTW89_DECL_RFK_WM(0x58b4, 0x7f000000, 0xa),
++	RTW89_DECL_RFK_WM(0x58b8, 0x0000007f, 0x28),
++	RTW89_DECL_RFK_WM(0x58b8, 0x00007f00, 0x76),
++	RTW89_DECL_RFK_WM(0x5810, 0x20000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5814, 0x20000000, 0x1),
++	RTW89_DECL_RFK_WM(0x580c, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x580c, 0x40000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_slope_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_slope_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7820, 0x40000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7818, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7814, 0x00000800, 0x1),
++	RTW89_DECL_RFK_WM(0x781c, 0x20000000, 0x1),
++	RTW89_DECL_RFK_WM(0x78e8, 0x0000003f, 0xf),
++	RTW89_DECL_RFK_WM(0x781c, 0x000003ff, 0x280),
++	RTW89_DECL_RFK_WM(0x781c, 0x000ffc00, 0x200),
++	RTW89_DECL_RFK_WM(0x78b8, 0x007f0000, 0x0),
++	RTW89_DECL_RFK_WM(0x78b8, 0x7f000000, 0x0),
++	RTW89_DECL_RFK_WM(0x78b4, 0x7f000000, 0xa),
++	RTW89_DECL_RFK_WM(0x78b8, 0x0000007f, 0x28),
++	RTW89_DECL_RFK_WM(0x78b8, 0x00007f00, 0x76),
++	RTW89_DECL_RFK_WM(0x7810, 0x20000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7814, 0x20000000, 0x1),
++	RTW89_DECL_RFK_WM(0x780c, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x780c, 0x40000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_slope_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_run_slope_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_run_slope_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_run_slope_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_run_slope_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_track_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5818, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5814, 0x00000800, 0x0),
++	RTW89_DECL_RFK_WM(0x581c, 0x20000000, 0x1),
++	RTW89_DECL_RFK_WM(0x5864, 0x000003ff, 0x1ff),
++	RTW89_DECL_RFK_WM(0x5864, 0x000ffc00, 0x200),
++	RTW89_DECL_RFK_WM(0x5820, 0x00000fff, 0x80),
++	RTW89_DECL_RFK_WM(0x5814, 0x01000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_track_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_track_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7818, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7814, 0x00000800, 0x0),
++	RTW89_DECL_RFK_WM(0x781c, 0x20000000, 0x1),
++	RTW89_DECL_RFK_WM(0x7864, 0x000003ff, 0x1ff),
++	RTW89_DECL_RFK_WM(0x7864, 0x000ffc00, 0x200),
++	RTW89_DECL_RFK_WM(0x7820, 0x00000fff, 0x80),
++	RTW89_DECL_RFK_WM(0x7814, 0x01000000, 0x0),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_track_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_txagc_ofst_mv_avg_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x58e4, 0x00003800, 0x1),
++	RTW89_DECL_RFK_WM(0x58e4, 0x00004000, 0x0),
++	RTW89_DECL_RFK_WM(0x58e4, 0x00008000, 0x1),
++	RTW89_DECL_RFK_WM(0x58e4, 0x000f0000, 0x0),
++	RTW89_DECL_RFK_WM(0x58e8, 0x0000003f, 0x4),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_txagc_ofst_mv_avg_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_txagc_ofst_mv_avg_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x78e4, 0x00003800, 0x1),
++	RTW89_DECL_RFK_WM(0x78e4, 0x00004000, 0x0),
++	RTW89_DECL_RFK_WM(0x78e4, 0x00008000, 0x1),
++	RTW89_DECL_RFK_WM(0x78e4, 0x000f0000, 0x0),
++	RTW89_DECL_RFK_WM(0x78e8, 0x0000003f, 0x4),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_txagc_ofst_mv_avg_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_enable_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x58e4, 0x00004000, 0x0),
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x1),
++	RTW89_DECL_RFK_WRF(RF_PATH_A, 0x10055, 0x00080, 0x1),
++	RTW89_DECL_RFK_WM(0x5818, 0x10000000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_enable_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_enable_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x78e4, 0x00004000, 0x0),
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x1),
++	RTW89_DECL_RFK_WRF(RF_PATH_B, 0x10055, 0x00080, 0x1),
++	RTW89_DECL_RFK_WM(0x7818, 0x10000000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_enable_defs_b);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_disable_defs_a[] = {
++	RTW89_DECL_RFK_WM(0x5820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x5818, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x58e4, 0x00004000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_disable_defs_a);
++
++static const struct rtw89_reg5_def rtw8192xb_tssi_disable_defs_b[] = {
++	RTW89_DECL_RFK_WM(0x7820, 0x80000000, 0x0),
++	RTW89_DECL_RFK_WM(0x7818, 0x10000000, 0x0),
++	RTW89_DECL_RFK_WM(0x78e4, 0x00004000, 0x1),
++};
++
++RTW89_DECLARE_RFK_TBL(rtw8192xb_tssi_disable_defs_b);
+--- /dev/null
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk_table.h
+@@ -0,0 +1,38 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
++/* Copyright(c) 2019-2022  Realtek Corporation
++ */
++
++#ifndef __RTW89_8192XB_RFK_TABLE_H__
++#define __RTW89_8192XB_RFK_TABLE_H__
++
++#include "phy.h"
++
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_sys_defs_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_sys_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_sys_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_txpwr_ctrl_bb_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_txpwr_ctrl_bb_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_txpwr_ctrl_bb_he_tb_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_txpwr_ctrl_bb_he_tb_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_dck_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_dck_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_set_bbgain_split_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_set_bbgain_split_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_slope_cal_org_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_slope_cal_org_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_set_aligk_default_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_set_aligk_default_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_slope_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_slope_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_run_slope_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_run_slope_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_track_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_track_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_txagc_ofst_mv_avg_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_txagc_ofst_mv_avg_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_enable_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_enable_defs_b_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_disable_defs_a_tbl;
++extern const struct rtw89_rfk_tbl rtw8192xb_tssi_disable_defs_b_tbl;
++
++#endif

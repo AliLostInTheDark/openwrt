@@ -1,0 +1,322 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: add a hwmon sensor and a thermal cooling device
+
+rtw89 reads the thermal meter of every RF path every two seconds for
+calibration tracking and thermal protection, but never exposes it, and
+the TX duty throttle it uses for protection cannot be driven by the
+thermal framework.
+
+Register one hwmon temperature input per chip, the hotter RF path from
+that running average, so no extra RF access is made. While the radio
+is down it returns -EAGAIN, like other thermal sensors without a first
+sample, so the thermal core retries instead of disabling the zone.
+HWMON_C_REGISTER_TZ lets a device tree thermal zone use it as its
+sensor.
+
+Register a thermal cooling device on the same node with states 0 to
+RTW89_THERMAL_PROT_LV_MAX that map to the existing firmware TX duty
+levels (5% less airtime per state). The firmware gets the higher of
+this level and the driver's own protection level, and the level is
+sent again after the firmware restarts. A board can then put passive
+and critical trips on the radio in its device tree.
+
+The thermal meter code is converted with a per-chip linear fit,
+offset + slope * code in milli-degrees Celsius, from the vendor driver
+defaults (rtw_ther_default_mib): -35366/2517 for RTL8852C and
+-23252/2553 for RTL8192XB. They reproduce the vendor's own readings on
+the HG325AX30 (codes 30, 31 and 26 give 40, 42 and 43 degrees). The
+vendor's TX-load correction table is zero at idle and is not applied.
+Chips without a fit register neither device.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+--- a/drivers/net/wireless/realtek/rtw89/core.c
++++ b/drivers/net/wireless/realtek/rtw89/core.c
+@@ -1,7 +1,9 @@
+ // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+ /* Copyright(c) 2019-2020  Realtek Corporation
+  */
++#include <linux/hwmon.h>
+ #include <linux/ip.h>
++#include <linux/thermal.h>
+ #include <linux/of.h>
+ #include <linux/of_net.h>
+ #include <linux/sort.h>
+@@ -6630,6 +6632,9 @@ int rtw89_core_start(struct rtw89_dev *rtwdev)
+ 	rtw89_tas_fw_timer_enable(rtwdev, true);
+ 	rtwdev->ps_hang_cnt = 0;
+ 
++	if (rtwdev->hal.cooling_lv)
++		rtw89_phy_tx_duty_update(rtwdev);
++
+ 	return 0;
+ }
+ 
+@@ -7533,6 +7538,162 @@ static void rtw89_core_unregister_hw(struct rtw89_dev *rtwdev)
+ 	ieee80211_unregister_hw(hw);
+ }
+ 
++#if IS_REACHABLE(CONFIG_HWMON)
++static int rtw89_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
++			    u32 attr, int channel, long *val)
++{
++	struct rtw89_dev *rtwdev = dev_get_drvdata(dev);
++	const struct rtw89_chip_info *chip = rtwdev->chip;
++	u8 code = 0;
++	int path;
++
++	if (!test_bit(RTW89_FLAG_RUNNING, rtwdev->flags))
++		return -EAGAIN;
++
++	for (path = 0; path < chip->rf_path_num; path++)
++		code = max_t(u8, code,
++			     ewma_thermal_read(&rtwdev->phystat.avg_thermal[path]));
++	if (!code)
++		return -EAGAIN;
++
++	*val = chip->thermal_mc_offset + chip->thermal_mc_slope * code;
++
++	return 0;
++}
++
++static umode_t rtw89_hwmon_is_visible(const void *data,
++				      enum hwmon_sensor_types type,
++				      u32 attr, int channel)
++{
++	return 0444;
++}
++
++static const struct hwmon_channel_info * const rtw89_hwmon_info[] = {
++	HWMON_CHANNEL_INFO(chip, HWMON_C_REGISTER_TZ),
++	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT),
++	NULL
++};
++
++static const struct hwmon_ops rtw89_hwmon_ops = {
++	.is_visible = rtw89_hwmon_is_visible,
++	.read = rtw89_hwmon_read,
++};
++
++static const struct hwmon_chip_info rtw89_hwmon_chip_info = {
++	.ops = &rtw89_hwmon_ops,
++	.info = rtw89_hwmon_info,
++};
++
++static void rtw89_hwmon_register(struct rtw89_dev *rtwdev)
++{
++	struct device *hwmon;
++
++	hwmon = hwmon_device_register_with_info(rtwdev->dev, "rtw89", rtwdev,
++						&rtw89_hwmon_chip_info, NULL);
++	if (IS_ERR(hwmon)) {
++		rtw89_warn(rtwdev, "failed to register hwmon: %ld\n", PTR_ERR(hwmon));
++		return;
++	}
++
++	rtwdev->hwmon = hwmon;
++}
++
++static void rtw89_hwmon_unregister(struct rtw89_dev *rtwdev)
++{
++	if (rtwdev->hwmon)
++		hwmon_device_unregister(rtwdev->hwmon);
++	rtwdev->hwmon = NULL;
++}
++#else
++static void rtw89_hwmon_register(struct rtw89_dev *rtwdev) {}
++static void rtw89_hwmon_unregister(struct rtw89_dev *rtwdev) {}
++#endif
++
++#if IS_REACHABLE(CONFIG_THERMAL)
++static int rtw89_cooling_get_max_state(struct thermal_cooling_device *cdev,
++				       unsigned long *state)
++{
++	*state = RTW89_THERMAL_PROT_LV_MAX;
++
++	return 0;
++}
++
++static int rtw89_cooling_get_cur_state(struct thermal_cooling_device *cdev,
++				       unsigned long *state)
++{
++	struct rtw89_dev *rtwdev = cdev->devdata;
++
++	*state = rtwdev->hal.cooling_lv;
++
++	return 0;
++}
++
++static int rtw89_cooling_set_cur_state(struct thermal_cooling_device *cdev,
++				       unsigned long state)
++{
++	struct rtw89_dev *rtwdev = cdev->devdata;
++
++	if (state > RTW89_THERMAL_PROT_LV_MAX)
++		return -EINVAL;
++
++	wiphy_lock(rtwdev->hw->wiphy);
++	if (rtwdev->hal.cooling_lv != state) {
++		rtwdev->hal.cooling_lv = state;
++		if (test_bit(RTW89_FLAG_RUNNING, rtwdev->flags))
++			rtw89_phy_tx_duty_update(rtwdev);
++	}
++	wiphy_unlock(rtwdev->hw->wiphy);
++
++	return 0;
++}
++
++static const struct thermal_cooling_device_ops rtw89_cooling_ops = {
++	.get_max_state = rtw89_cooling_get_max_state,
++	.get_cur_state = rtw89_cooling_get_cur_state,
++	.set_cur_state = rtw89_cooling_set_cur_state,
++};
++
++static void rtw89_cooling_register(struct rtw89_dev *rtwdev)
++{
++	struct thermal_cooling_device *cdev;
++
++	cdev = thermal_of_cooling_device_register(rtwdev->dev->of_node, "rtw89",
++						  rtwdev, &rtw89_cooling_ops);
++	if (IS_ERR(cdev)) {
++		rtw89_warn(rtwdev, "failed to register cooling device: %ld\n",
++			   PTR_ERR(cdev));
++		return;
++	}
++
++	rtwdev->cdev = cdev;
++}
++
++static void rtw89_cooling_unregister(struct rtw89_dev *rtwdev)
++{
++	if (rtwdev->cdev)
++		thermal_cooling_device_unregister(rtwdev->cdev);
++	rtwdev->cdev = NULL;
++}
++#else
++static void rtw89_cooling_register(struct rtw89_dev *rtwdev) {}
++static void rtw89_cooling_unregister(struct rtw89_dev *rtwdev) {}
++#endif
++
++static void rtw89_thermal_register(struct rtw89_dev *rtwdev)
++{
++	if (!rtwdev->chip->thermal_mc_slope)
++		return;
++
++	rtw89_hwmon_register(rtwdev);
++	rtw89_cooling_register(rtwdev);
++}
++
++static void rtw89_thermal_unregister(struct rtw89_dev *rtwdev)
++{
++	rtw89_cooling_unregister(rtwdev);
++	rtw89_hwmon_unregister(rtwdev);
++}
++
+ int rtw89_core_register(struct rtw89_dev *rtwdev)
+ {
+ 	int ret;
+@@ -7545,6 +7706,7 @@ int rtw89_core_register(struct rtw89_dev *rtwdev)
+ 
+ 	rtw89_phy_dm_init_data(rtwdev);
+ 	rtw89_debugfs_init(rtwdev);
++	rtw89_thermal_register(rtwdev);
+ 
+ 	return 0;
+ }
+@@ -7552,6 +7714,7 @@ EXPORT_SYMBOL(rtw89_core_register);
+ 
+ void rtw89_core_unregister(struct rtw89_dev *rtwdev)
+ {
++	rtw89_thermal_unregister(rtwdev);
+ 	rtw89_core_unregister_hw(rtwdev);
+ 
+ 	rtw89_debugfs_deinit(rtwdev);
+--- a/drivers/net/wireless/realtek/rtw89/core.h
++++ b/drivers/net/wireless/realtek/rtw89/core.h
+@@ -27,6 +27,7 @@ struct rtw89_phy_calc_efuse_gain;
+ union rtw89_phy_sts_ie09;
+ struct rtw89_phy_sts_ie10;
+ struct rtw89_debugfs;
++struct thermal_cooling_device;
+ struct rtw89_regd_data;
+ struct rtw89_wow_cam_info;
+ struct rtw89_bb_wrap_data;
+@@ -4674,6 +4675,9 @@ struct rtw89_chip_info {
+ 	u8 wde_qempty_mgq_grpsel;
+ 	u32 rf_base_addr[2];
+ 	u8 thermal_th[2];
++	/* thermal meter code to milli-degree Celsius: offset + slope * code */
++	s32 thermal_mc_offset;
++	s32 thermal_mc_slope;
+ 	u8 support_macid_num;
+ 	u8 support_link_num;
+ 	u8 support_chanctx_num;
+@@ -5343,6 +5347,7 @@ struct rtw89_hal {
+ 
+ 	u8 thermal_prot_th;
+ 	u8 thermal_prot_lv; /* 0 ~ RTW89_THERMAL_PROT_LV_MAX */
++	u8 cooling_lv; /* 0 ~ RTW89_THERMAL_PROT_LV_MAX, from the thermal framework */
+ 
+ 	u8 fixed_dig_pd_th; /* v = (X(dBm) + 102)/2 */
+ 	s8 fixed_dig_cck_pd_th; /* dBm */
+@@ -6566,6 +6571,8 @@ struct rtw89_dev {
+ 	int napi_budget_countdown;
+ 
+ 	struct rtw89_debugfs *debugfs;
++	struct device *hwmon;
++	struct thermal_cooling_device *cdev;
+ 	struct rtw89_vif *pure_monitor_mode_vif;
+ 
+ 	/* HCI related data, keep last */
+--- a/drivers/net/wireless/realtek/rtw89/phy.c
++++ b/drivers/net/wireless/realtek/rtw89/phy.c
+@@ -5806,7 +5806,17 @@ static void rtw89_phy_thermal_protect(struct rtw89_dev *rtwdev)
+ 
+ 	rtw89_debug(rtwdev, RTW89_DBG_RFK_TRACK, "thermal protection lv=%d\n", lv);
+ 
+-	rtw89_fw_h2c_tx_duty(rtwdev, hal->thermal_prot_lv);
++	rtw89_phy_tx_duty_update(rtwdev);
++}
++
++/* Throttle TX to the higher of the driver's own protection level and the
++ * level the thermal framework asks for through the cooling device.
++ */
++void rtw89_phy_tx_duty_update(struct rtw89_dev *rtwdev)
++{
++	struct rtw89_hal *hal = &rtwdev->hal;
++
++	rtw89_fw_h2c_tx_duty(rtwdev, max(hal->thermal_prot_lv, hal->cooling_lv));
+ }
+ 
+ static void rtw89_phy_stat_thermal_update(struct rtw89_dev *rtwdev)
+--- a/drivers/net/wireless/realtek/rtw89/phy.h
++++ b/drivers/net/wireless/realtek/rtw89/phy.h
+@@ -1009,6 +1009,7 @@ void rtw89_phy_config_rf_reg_v1(struct rtw89_dev *rtwdev,
+ 				enum rtw89_rf_path rf_path,
+ 				void *extra_data);
+ void rtw89_phy_dm_init(struct rtw89_dev *rtwdev);
++void rtw89_phy_tx_duty_update(struct rtw89_dev *rtwdev);
+ void rtw89_phy_dm_reinit(struct rtw89_dev *rtwdev);
+ void rtw89_phy_dm_init_data(struct rtw89_dev *rtwdev);
+ void rtw89_physts_parsing_init(struct rtw89_dev *rtwdev);
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb.c
+@@ -1358,6 +1358,8 @@ const struct rtw89_chip_info rtw8192xb_chip_info = {
+ 	.wde_qempty_mgq_grpsel	= 16,
+ 	.rf_base_addr		= {0xe000, 0xf000},
+ 	.thermal_th		= {0x32, 0x35},
++	.thermal_mc_offset	= -23252,
++	.thermal_mc_slope	= 2553,
+ 	.pwr_on_seq		= NULL,
+ 	.pwr_off_seq		= NULL,
+ 	.bb_table		= NULL,
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -1662,6 +1662,8 @@ const struct rtw89_chip_info rtw8852c_chip_info = {
+ 	.wde_qempty_mgq_grpsel	= 16,
+ 	.rf_base_addr		= {0xe000, 0xf000},
+ 	.thermal_th		= {0x32, 0x35},
++	.thermal_mc_offset	= -35366,
++	.thermal_mc_slope	= 2517,
+ 	.pwr_on_seq		= NULL,
+ 	.pwr_off_seq		= NULL,
+ 	.bb_table		= &rtw89_8852c_phy_bb_table,

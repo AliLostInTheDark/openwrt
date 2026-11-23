@@ -1,0 +1,73 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8852c: route the eFEM control signals to pins
+
+With an external front-end module (RFE types above 50) the PA enable,
+LNA-on and TX/RX switch signals have to leave the chip on GPIOs 1-3, 6,
+7, 10 and 11. The vendor driver selects the RF path, polarity and signal
+source of each pin and switches the pin mux to the RF front-end
+function. Without this the pins keep their default function, the eFEM
+is never enabled and the link is about 20 dB weaker in both directions.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -1813,6 +1813,50 @@ static void rtw8852c_bb_gpio_init(struct
+ 	rtw8852c_bb_gpio_rfm(rtwdev, RF_PATH_B, LNAON_RFM, 0, 0, 0, lnaon_val);
+ }
+ 
++static void rtw8852c_efem_gpio(struct rtw89_dev *rtwdev, u8 gpio,
++			       enum rtw89_rf_path path, bool inv, u8 src)
++{
++	u32 base = path == RF_PATH_A ? 0x5800 : 0x7800;
++
++	rtw89_phy_write32_mask(rtwdev, R_RFE_SEL0_A2,
++			       B_RFE_SEL0_MASK << (gpio * 2), path);
++	rtw89_phy_write32_mask(rtwdev, base | 0x90, BIT(gpio), inv);
++	rtw89_phy_write32_mask(rtwdev, (base | 0x80) + (gpio / 8) * sizeof(u32),
++			       0xf << ((gpio % 8) * 4), src);
++
++	/* hand the pin to the RF front-end function */
++	rtw89_write8_mask(rtwdev, R_AX_GPIO0_7_FUNC_SEL + gpio / 2,
++			  0xf << ((gpio % 2) * 4), 0x8);
++}
++
++static void rtw8852c_rfe_gpio(struct rtw89_dev *rtwdev)
++{
++	u8 rfe_type = rtwdev->efuse.rfe_type;
++	bool inv;
++
++	if (!rtw89_rfe_has_efem(rtwdev))
++		return;
++
++	switch (rfe_type) {
++	case 51:
++	case 52:
++	case 53:
++	case 54:
++	case 63:
++	case 64:
++		inv = rfe_type > 52;
++		rtw8852c_efem_gpio(rtwdev, 10, RF_PATH_A, true, 4);
++		rtw8852c_efem_gpio(rtwdev, 7, RF_PATH_A, inv, 3);
++		rtw8852c_efem_gpio(rtwdev, 6, RF_PATH_A, false, 0);
++		rtw8852c_efem_gpio(rtwdev, 1, RF_PATH_B, true, 4);
++		rtw8852c_efem_gpio(rtwdev, 2, RF_PATH_B, inv, 3);
++		rtw8852c_efem_gpio(rtwdev, 3, RF_PATH_B, false, 0);
++		break;
++	}
++
++	rtw8852c_efem_gpio(rtwdev, 11, RF_PATH_A, true, 7);
++}
++
+ static void rtw8852c_bb_macid_ctrl_init(struct rtw89_dev *rtwdev,
+ 					enum rtw89_phy_idx phy_idx)
+ {
+@@ -3113,7 +3157,7 @@ static const struct rtw89_chip_ops rtw88
+ 	.read_phycap		= rtw8852c_read_phycap,
+ 	.fem_setup		= NULL,
+ 	.data_setup		= NULL,
+-	.rfe_gpio		= NULL,
++	.rfe_gpio		= rtw8852c_rfe_gpio,
+ 	.rfk_hw_init		= NULL,
+ 	.rfk_init		= rtw8852c_rfk_init,
+ 	.rfk_init_late		= NULL,

@@ -1,0 +1,58 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8192xb: put the TX gain tables under SW control
+
+Realtek's rtk_wifi6_ap driver skips the TX gain gap calibration on this
+chip when an external front-end module is fitted, but its init still
+moves the TX gain tables from HW to SW control on both paths. The RF
+table leaves them under HW control, so do the same at init.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/reg.h
++++ b/drivers/net/wireless/realtek/rtw89/reg.h
+@@ -8623,6 +8623,7 @@
+ #define RR_TXGA_LOK_EXT GENMASK(4, 0)
+ #define RR_TXGA_LOK_EN BIT(0)
+ #define RR_TXGA_V1 0x10055
++#define RR_TXGA_V1_HW_TBL BIT(19)
+ #define RR_TXGA_V1_TRK_EN BIT(7)
+ #define RR_GAINTX 0x56
+ #define RR_GAINTX_ALL GENMASK(15, 0)
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb.c
+@@ -1044,6 +1044,7 @@ static void rtw8192xb_rfk_init(struct rtw89_dev *rtwdev)
+ 	rtwdev->is_tssi_mode[RF_PATH_B] = false;
+ 	memset(rfk_mcc, 0, sizeof(*rfk_mcc));
+ 	rtw8192xb_lck_init(rtwdev);
++	rtw8192xb_txgapk_init(rtwdev);
+ 
+ 	rtw8192xb_rck(rtwdev);
+ 	rtw8192xb_dack(rtwdev, RTW89_CHANCTX_0);
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.c
+@@ -1492,6 +1492,15 @@ void rtw8192xb_tssi_default_txagc(struct rtw89_dev *rtwdev, bool scan_start)
+ 	}
+ }
+ 
++/* TX GAPK is not run with an eFEM; keep the TX gain tables under SW control. */
++void rtw8192xb_txgapk_init(struct rtw89_dev *rtwdev)
++{
++	u8 path;
++
++	for (path = RF_PATH_A; path < RF_PATH_NUM_8192XB; path++)
++		rtw89_write_rf(rtwdev, path, RR_TXGA_V1, RR_TXGA_V1_HW_TBL, 0x0);
++}
++
+ /* The vendor driver skips DPK with an external PA and keeps the DPD off. */
+ void rtw8192xb_dpk(struct rtw89_dev *rtwdev)
+ {
+--- a/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.h
++++ b/drivers/net/wireless/realtek/rtw89/rtw8192xb_rfk.h
+@@ -10,6 +10,7 @@
+ void rtw8192xb_mcc_get_ch_info(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy);
+ void rtw8192xb_rck(struct rtw89_dev *rtwdev);
+ void rtw8192xb_dack(struct rtw89_dev *rtwdev, enum rtw89_chanctx_idx chanctx_idx);
++void rtw8192xb_txgapk_init(struct rtw89_dev *rtwdev);
+ void rtw8192xb_rx_dck(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy);
+ void rtw8192xb_iqk(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy_idx,
+ 		   enum rtw89_chanctx_idx chanctx_idx);

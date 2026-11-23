@@ -1,0 +1,72 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: apply the DT frequency limits
+
+A board may wire a radio for part of its range only, for example an
+RTL8852CE behind a 5 GHz band-pass front-end module. Honour the
+"ieee80211-freq-limit" property of the device node like other mac80211
+drivers do, so cfg80211 disables the channels outside the ranges.
+
+A band with no channel left would still be advertised with its
+capabilities and scanned, and user space would offer it. Do not register
+such a band, as mt76 does in mt76_check_sband(). The bands are device
+managed, and rtw89 checks wiphy->bands for NULL everywhere it uses one.
+Frames received before the first channel is set carry the default
+2.4 GHz band; drop them when that band is not registered, as mac80211
+would otherwise warn.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/core.c
++++ b/drivers/net/wireless/realtek/rtw89/core.c
+@@ -3991,6 +3991,12 @@ static void rtw89_core_rx_to_mac80211(st
+ 	rtw89_core_update_rx_freq_from_ie(rtwdev, skb_ppdu, rx_status);
+ 	rtw89_core_correct_mcc_chan(rtwdev, desc_info, rx_status, phy_ppdu);
+ 
++	/* Received before the channel was set, on a band left out by the DT */
++	if (unlikely(!rtwdev->hw->wiphy->bands[rx_status->band])) {
++		dev_kfree_skb_any(skb_ppdu);
++		return;
++	}
++
+ 	/* In low power mode, it does RX in thread context. */
+ 	local_bh_disable();
+ 	ieee80211_rx_napi(rtwdev->hw, NULL, skb_ppdu, napi);
+@@ -7380,6 +7386,29 @@ void rtw89_chip_cfg_txpwr_ul_tb_offset(s
+ 		chip->ops->set_txpwr_ul_tb_offset(rtwdev, 0, rtwvif_link->mac_idx);
+ }
+ 
++/* Like mt76, do not register a band the DT limits leave no channel in */
++static void rtw89_core_apply_freq_limits(struct rtw89_dev *rtwdev)
++{
++	struct wiphy *wiphy = rtwdev->hw->wiphy;
++	struct ieee80211_supported_band *sband;
++	int band, i;
++
++	wiphy_read_of_freq_limits(wiphy);
++
++	for (band = 0; band < NUM_NL80211_BANDS; band++) {
++		sband = wiphy->bands[band];
++		if (!sband)
++			continue;
++
++		for (i = 0; i < sband->n_channels; i++)
++			if (!(sband->channels[i].flags & IEEE80211_CHAN_DISABLED))
++				break;
++
++		if (i == sband->n_channels)
++			wiphy->bands[band] = NULL;
++	}
++}
++
+ static int rtw89_core_register_hw(struct rtw89_dev *rtwdev)
+ {
+ 	const struct rtw89_chip_info *chip = rtwdev->chip;
+@@ -7501,6 +7530,8 @@ static int rtw89_core_register_hw(struct
+ 
+ 	hw->wiphy->sar_capa = &rtw89_sar_capa;
+ 
++	rtw89_core_apply_freq_limits(rtwdev);
++
+ 	ret = ieee80211_register_hw(hw);
+ 	if (ret) {
+ 		rtw89_err(rtwdev, "failed to register hw\n");

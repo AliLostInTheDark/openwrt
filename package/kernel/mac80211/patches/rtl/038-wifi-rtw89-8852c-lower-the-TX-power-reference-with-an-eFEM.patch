@@ -1,0 +1,23 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8852c: lower the TX power reference with an eFEM
+
+With an external front-end module the PA adds gain, so Realtek's
+rtk_wifi6_ap driver uses an RF base code of 0x21 for 0 dBm instead of
+0x27 on the RFE types with an eFEM, for both the RTL8852C and the
+RTL8192XB. Do the same; otherwise the RF is driven 6 dB harder than
+the vendor driver does.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c_common.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c_common.c
+@@ -521,7 +521,8 @@ static u32 rtw8852cx_bb_cal_txpwr_ref(struct rtw89_dev *rtwdev,
+ 				      enum rtw89_phy_idx phy_idx,
+ 				      s16 ref, u16 pwr_ofst_decrease)
+ {
+-	u8 base_cw_0db = 0x27;
++	/* an external PA adds gain, so drive the RF 6 dB lower */
++	u8 base_cw_0db = rtw89_rfe_has_efem(rtwdev) ? 0x21 : 0x27;
+ 	u16 tssi_16dbm_cw = 0x12c;
+ 	s16 pwr_s10_3 = 0;
+ 	s16 rf_pwr_cw = 0;

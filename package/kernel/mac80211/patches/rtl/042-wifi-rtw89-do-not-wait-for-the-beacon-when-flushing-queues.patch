@@ -1,0 +1,29 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: do not wait for the beacon when flushing queues
+
+In AP mode the firmware keeps the beacon in the CMAC MBH queue and the
+CPU IO quota, so R_AX_DLE_EMPTY0 never reports them empty: every flush
+with a station associated waited the full 200 ms and logged "timed out
+to flush queues". Leave those out of the flush check; the AC, WMM, MPDU
+and host interface queues are still waited for.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+--- a/drivers/net/wireless/realtek/rtw89/mac.c
++++ b/drivers/net/wireless/realtek/rtw89/mac.c
+@@ -2388,13 +2388,13 @@ static bool dle_is_txq_empty(struct rtw89_dev *rtwdev)
+ 	u32 msk32;
+ 	u32 val32;
+ 
+-	msk32 = B_AX_WDE_EMPTY_QUE_CMAC0_ALL_AC | B_AX_WDE_EMPTY_QUE_CMAC0_MBH |
+-		B_AX_WDE_EMPTY_QUE_CMAC1_MBH | B_AX_WDE_EMPTY_QUE_CMAC0_WMM0 |
++	/* The MBH queues and the CPU IO quota hold the beacon of an AP. */
++	msk32 = B_AX_WDE_EMPTY_QUE_CMAC0_ALL_AC | B_AX_WDE_EMPTY_QUE_CMAC0_WMM0 |
+ 		B_AX_WDE_EMPTY_QUE_CMAC0_WMM1 | B_AX_WDE_EMPTY_QUE_OTHERS |
+ 		B_AX_PLE_EMPTY_QUE_DMAC_MPDU_TX | B_AX_PLE_EMPTY_QTA_DMAC_H2C |
+ 		B_AX_PLE_EMPTY_QUE_DMAC_SEC_TX | B_AX_WDE_EMPTY_QUE_DMAC_PKTIN |
+ 		B_AX_WDE_EMPTY_QTA_DMAC_HIF | B_AX_WDE_EMPTY_QTA_DMAC_WLAN_CPU |
+-		B_AX_WDE_EMPTY_QTA_DMAC_PKTIN | B_AX_WDE_EMPTY_QTA_DMAC_CPUIO |
++		B_AX_WDE_EMPTY_QTA_DMAC_PKTIN |
+ 		B_AX_PLE_EMPTY_QTA_DMAC_B0_TXPL |
+ 		B_AX_PLE_EMPTY_QTA_DMAC_B1_TXPL |
+ 		B_AX_PLE_EMPTY_QTA_DMAC_MPDU_TX |

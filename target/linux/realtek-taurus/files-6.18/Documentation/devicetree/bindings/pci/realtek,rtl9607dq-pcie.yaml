@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pci/realtek,rtl9607dq-pcie.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek RTL9607DQ PCIe host controller
+
+maintainers:
+  - Ifran Ali <khanu.i.i.k.2000@gmail.com>
+
+description:
+  DesignWare PCIe root complex of the Realtek RTL9607DQ, one per SerDes
+  lane, with a Cortina glue block that carries INTx and MSI on one
+  interrupt line.
+
+allOf:
+  - $ref: /schemas/pci/pci-host-bridge.yaml#
+
+properties:
+  compatible:
+    const: realtek,rtl9607dq-pcie
+
+  reg:
+    items:
+      - description: glue registers (resets, interrupts, link status)
+      - description: DesignWare DBI registers
+      - description: configuration space window
+      - description: iATU registers
+      - description: SerDes PHY registers
+
+  reg-names:
+    items:
+      - const: glbl_regs
+      - const: rc_dbi
+      - const: config
+      - const: iatu
+      - const: serdes_phy
+
+  interrupts:
+    minItems: 1
+    items:
+      - description: glue interrupt carrying INTx and MSI
+      - description: controller interrupt line 1, unused
+      - description: controller interrupt line 2, unused
+      - description: controller interrupt line 3, unused
+
+  realtek,glb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: The GLB syscon holding the PCIe block and SerDes resets.
+
+  realtek,serdes-cfg:
+    $ref: /schemas/types.yaml#/definitions/uint32-matrix
+    description:
+      SerDes PHY register writes applied before link training, as
+      <offset value> pairs relative to the serdes_phy registers.
+    items:
+      items:
+        - description: register offset
+        - description: value
+
+  num-lanes:
+    const: 1
+
+  num-viewport:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description: Number of iATU viewports.
+
+  reset-gpios:
+    maxItems: 1
+    description: PERST# of the device behind the port.
+
+  interrupt-controller:
+    type: object
+    additionalProperties: false
+    description: INTx interrupt controller of the glue block.
+
+    properties:
+      interrupt-controller: true
+
+      "#address-cells":
+        const: 0
+
+      "#interrupt-cells":
+        const: 1
+
+    required:
+      - interrupt-controller
+      - "#address-cells"
+      - "#interrupt-cells"
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+  - realtek,glb
+  - realtek,serdes-cfg
+  - reset-gpios
+  - interrupt-controller
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+
+    bus {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        pcie@f4325000 {
+            compatible = "realtek,rtl9607dq-pcie";
+            reg = <0x0 0xf4325000 0x0 0x400>,
+                  <0x0 0xa0000000 0x0 0x1000>,
+                  <0x0 0xa0001000 0x0 0x2000>,
+                  <0x0 0xa0300000 0x0 0x100000>,
+                  <0x0 0xf4333000 0x0 0x2000>;
+            reg-names = "glbl_regs", "rc_dbi", "config", "iatu", "serdes_phy";
+            realtek,glb = <&glb>;
+            #address-cells = <3>;
+            #size-cells = <2>;
+            device_type = "pci";
+            bus-range = <0x00 0xff>;
+            ranges = <0x81000000 0x0 0x00000000 0x0 0xa0003000 0x0 0x00010000>,
+                     <0x82000000 0x0 0xa0400000 0x0 0xa0400000 0x0 0x0fc00000>;
+            num-viewport = <1>;
+            num-lanes = <1>;
+            interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+            #interrupt-cells = <1>;
+            interrupt-map-mask = <0 0 0 7>;
+            interrupt-map = <0 0 0 1 &pcie0_intc 0>,
+                            <0 0 0 2 &pcie0_intc 1>,
+                            <0 0 0 3 &pcie0_intc 2>,
+                            <0 0 0 4 &pcie0_intc 3>;
+            realtek,serdes-cfg = <0x004 0xa855>, <0x008 0x60c6>;
+            reset-gpios = <&gpio3 5 GPIO_ACTIVE_LOW>;
+
+            pcie0_intc: interrupt-controller {
+                interrupt-controller;
+                #address-cells = <0>;
+                #interrupt-cells = <1>;
+            };
+        };
+    };

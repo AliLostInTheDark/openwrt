@@ -1,0 +1,44 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: 8852c: suppress spurs on internal-FEM boards only
+
+The vendor driver sets the CSI tone index and the NBI and 160 MHz spur
+notches only when the RFE type has an internal FEM; with an external
+FEM it leaves them alone. Do the same. This also covers the RTL8192XB,
+whose vendor driver has no 2.4 GHz spur handling. The PD boost setting
+is not part of it and still applies to every board.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c_common.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c_common.c
+@@ -396,10 +396,10 @@ static void rtw8852cx_spur_notch(struct rtw89_dev *rtwdev, u32 val,
+ 	rtw89_phy_write32_set(rtwdev, notch2, B_PATH0_NOTCH2_EN);
+ }
+ 
+-static void __rtw8852cx_spur_elimination(struct rtw89_dev *rtwdev,
+-					 const struct rtw89_chan *chan,
+-					 u8 pri_ch_idx,
+-					 enum rtw89_phy_idx phy_idx)
++static void rtw8852cx_spur_suppress(struct rtw89_dev *rtwdev,
++				    const struct rtw89_chan *chan,
++				    u8 pri_ch_idx,
++				    enum rtw89_phy_idx phy_idx)
+ {
+ 	rtw8852cx_set_csi_tone_idx(rtwdev, chan, phy_idx);
+ 
+@@ -435,6 +435,16 @@ static void __rtw8852cx_spur_elimination(struct rtw89_dev *rtwdev,
+ 			rtw8852cx_set_nbi_tone_idx(rtwdev, chan, RF_PATH_B);
+ 		}
+ 	}
++}
++
++static void __rtw8852cx_spur_elimination(struct rtw89_dev *rtwdev,
++					 const struct rtw89_chan *chan,
++					 u8 pri_ch_idx,
++					 enum rtw89_phy_idx phy_idx)
++{
++	/* the vendor driver suppresses spurs on internal-FEM boards only */
++	if (!rtw89_rfe_has_efem(rtwdev))
++		rtw8852cx_spur_suppress(rtwdev, chan, pri_ch_idx, phy_idx);
+ 
+ 	if (pri_ch_idx == RTW89_SC_20_UP3X || pri_ch_idx == RTW89_SC_20_LOW3X)
+ 		rtw89_phy_write32_idx(rtwdev, R_PD_BOOST_EN, B_PD_BOOST_EN, 0, phy_idx);

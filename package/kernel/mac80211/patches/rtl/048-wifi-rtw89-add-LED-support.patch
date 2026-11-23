@@ -1,0 +1,265 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: add LED support
+
+Register a LED class device with the mac80211 throughput trigger as its
+default, as rtw88 does. On the RTL8852C it drives GPIO8 as a software
+output, where the VSOL HG325AX30 wires its active-low WLAN LED, so the
+LED can take any LED trigger.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+diff -ruN a/drivers/net/wireless/realtek/rtw89/core.c b/drivers/net/wireless/realtek/rtw89/core.c
+--- a/drivers/net/wireless/realtek/rtw89/core.c
+diff -ruN a/drivers/net/wireless/realtek/rtw89/core.c b/drivers/net/wireless/realtek/rtw89/core.c
+--- a/drivers/net/wireless/realtek/rtw89/core.c
++++ b/drivers/net/wireless/realtek/rtw89/core.c
+@@ -15,6 +15,7 @@
+ #include "core.h"
+ #include "efuse.h"
+ #include "fw.h"
++#include "led.h"
+ #include "mac.h"
+ #include "phy.h"
+ #include "ps.h"
+@@ -7727,9 +7728,13 @@
+ {
+ 	int ret;
+ 
++	/* the throughput trigger must exist before the hw is registered */
++	rtw89_led_init(rtwdev);
++
+ 	ret = rtw89_core_register_hw(rtwdev);
+ 	if (ret) {
+ 		rtw89_err(rtwdev, "failed to register core hw\n");
++		rtw89_led_deinit(rtwdev);
+ 		return ret;
+ 	}
+ 
+@@ -7745,6 +7750,7 @@
+ {
+ 	rtw89_thermal_unregister(rtwdev);
+ 	rtw89_core_unregister_hw(rtwdev);
++	rtw89_led_deinit(rtwdev);
+ 
+ 	rtw89_debugfs_deinit(rtwdev);
+ }
+diff -ruN a/drivers/net/wireless/realtek/rtw89/core.h b/drivers/net/wireless/realtek/rtw89/core.h
+--- a/drivers/net/wireless/realtek/rtw89/core.h
++++ b/drivers/net/wireless/realtek/rtw89/core.h
+@@ -10,6 +10,7 @@
+ #include <linux/dmi.h>
+ #include <linux/firmware.h>
+ #include <linux/iopoll.h>
++#include <linux/leds.h>
+ #include <linux/workqueue.h>
+ #include <net/mac80211.h>
+ 
+@@ -3847,6 +3848,8 @@
+ };
+ 
+ struct rtw89_chip_ops {
++	void (*led_set)(struct rtw89_dev *rtwdev,
++			enum led_brightness brightness);
+ 	int (*enable_bb_rf)(struct rtw89_dev *rtwdev);
+ 	int (*disable_bb_rf)(struct rtw89_dev *rtwdev);
+ 	void (*bb_preinit)(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy_idx);
+@@ -6446,6 +6449,9 @@
+ 	const struct rtw89_pci_info *pci_info;
+ 	const struct rtw89_rfe_parms *rfe_parms;
+ 	struct rtw89_hal hal;
++	bool led_registered;
++	char led_name[32];
++	struct led_classdev led_cdev;
+ 	struct rtw89_beacon_track_info bcn_track;
+ 	struct rtw89_mcc_info mcc;
+ 	struct rtw89_mlo_info mlo;
+diff -ruN a/drivers/net/wireless/realtek/rtw89/Kconfig b/drivers/net/wireless/realtek/rtw89/Kconfig
+--- a/drivers/net/wireless/realtek/rtw89/Kconfig
++++ b/drivers/net/wireless/realtek/rtw89/Kconfig
+@@ -232,4 +232,10 @@
+ 
+ 	  If unsure, say Y to simplify debug problems
+ 
++
++config RTW89_LEDS
++	bool
++	depends on LEDS_CLASS=y || LEDS_CLASS=MAC80211
++	default y
++
+ endif
+diff -ruN a/drivers/net/wireless/realtek/rtw89/led.c b/drivers/net/wireless/realtek/rtw89/led.c
+--- a/drivers/net/wireless/realtek/rtw89/led.c
++++ b/drivers/net/wireless/realtek/rtw89/led.c
+@@ -0,0 +1,70 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
++
++#include "core.h"
++#include "debug.h"
++#include "led.h"
++
++static int rtw89_led_set(struct led_classdev *led,
++			 enum led_brightness brightness)
++{
++	struct rtw89_dev *rtwdev = container_of(led, struct rtw89_dev, led_cdev);
++
++	wiphy_lock(rtwdev->hw->wiphy);
++	rtwdev->chip->ops->led_set(rtwdev, brightness);
++	wiphy_unlock(rtwdev->hw->wiphy);
++
++	return 0;
++}
++
++void rtw89_led_init(struct rtw89_dev *rtwdev)
++{
++	static const struct ieee80211_tpt_blink rtw89_tpt_blink[] = {
++		{ .throughput = 0 * 1024, .blink_time = 334 },
++		{ .throughput = 1 * 1024, .blink_time = 260 },
++		{ .throughput = 5 * 1024, .blink_time = 220 },
++		{ .throughput = 10 * 1024, .blink_time = 190 },
++		{ .throughput = 20 * 1024, .blink_time = 170 },
++		{ .throughput = 50 * 1024, .blink_time = 150 },
++		{ .throughput = 70 * 1024, .blink_time = 130 },
++		{ .throughput = 100 * 1024, .blink_time = 110 },
++		{ .throughput = 200 * 1024, .blink_time = 80 },
++		{ .throughput = 300 * 1024, .blink_time = 50 },
++	};
++	struct led_classdev *led = &rtwdev->led_cdev;
++	int err;
++
++	if (!rtwdev->chip->ops->led_set)
++		return;
++
++	led->brightness_set_blocking = rtw89_led_set;
++
++	snprintf(rtwdev->led_name, sizeof(rtwdev->led_name),
++		 "rtw89-%s", dev_name(rtwdev->dev));
++
++	led->name = rtwdev->led_name;
++	led->max_brightness = LED_ON;
++	led->default_trigger =
++		ieee80211_create_tpt_led_trigger(rtwdev->hw,
++						 IEEE80211_TPT_LEDTRIG_FL_RADIO,
++						 rtw89_tpt_blink,
++						 ARRAY_SIZE(rtw89_tpt_blink));
++
++	err = led_classdev_register(rtwdev->dev, led);
++	if (err) {
++		rtw89_warn(rtwdev, "failed to register the LED: %d\n", err);
++		return;
++	}
++
++	rtwdev->led_registered = true;
++}
++
++void rtw89_led_deinit(struct rtw89_dev *rtwdev)
++{
++	struct led_classdev *led = &rtwdev->led_cdev;
++
++	if (!rtwdev->led_registered)
++		return;
++
++	led_classdev_unregister(led);
++	rtwdev->led_registered = false;
++}
+diff -ruN a/drivers/net/wireless/realtek/rtw89/led.h b/drivers/net/wireless/realtek/rtw89/led.h
+--- a/drivers/net/wireless/realtek/rtw89/led.h
++++ b/drivers/net/wireless/realtek/rtw89/led.h
+@@ -0,0 +1,23 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
++
++#ifndef __RTW89_LED_H__
++#define __RTW89_LED_H__
++
++#ifdef CPTCFG_RTW89_LEDS
++
++void rtw89_led_init(struct rtw89_dev *rtwdev);
++void rtw89_led_deinit(struct rtw89_dev *rtwdev);
++
++#else
++
++static inline void rtw89_led_init(struct rtw89_dev *rtwdev)
++{
++}
++
++static inline void rtw89_led_deinit(struct rtw89_dev *rtwdev)
++{
++}
++
++#endif
++
++#endif
+diff -ruN a/drivers/net/wireless/realtek/rtw89/Makefile b/drivers/net/wireless/realtek/rtw89/Makefile
+--- a/drivers/net/wireless/realtek/rtw89/Makefile
++++ b/drivers/net/wireless/realtek/rtw89/Makefile
+@@ -21,6 +21,7 @@
+ 		util.o
+ 
+ rtw89_core-$(CONFIG_PM) += wow.o
++rtw89_core-$(CPTCFG_RTW89_LEDS) += led.o
+ 
+ obj-$(CPTCFG_RTW89_8851B) += rtw89_8851b.o
+ rtw89_8851b-objs := rtw8851b.o \
+diff -ruN a/drivers/net/wireless/realtek/rtw89/reg.h b/drivers/net/wireless/realtek/rtw89/reg.h
+--- a/drivers/net/wireless/realtek/rtw89/reg.h
++++ b/drivers/net/wireless/realtek/rtw89/reg.h
+@@ -115,9 +115,12 @@
+ #define R_AX_GPIO_EXT_CTRL 0x0060
+ #define B_AX_GPIO_MOD_15_TO_8_MASK GENMASK(31, 24)
+ #define B_AX_GPIO_MOD_9 BIT(25)
++#define B_AX_GPIO_MOD_8 BIT(24)
+ #define B_AX_GPIO_IO_SEL_15_TO_8_MASK GENMASK(23, 16)
+ #define B_AX_GPIO_IO_SEL_9 BIT(17)
++#define B_AX_GPIO_IO_SEL_8 BIT(16)
+ #define B_AX_GPIO_OUT_15_TO_8_MASK GENMASK(15, 8)
++#define B_AX_GPIO_OUT_8 BIT(8)
+ #define B_AX_GPIO_IN_15_TO_8_MASK GENMASK(7, 0)
+ #define B_AX_GPIO_IN_9 BIT(1)
+ 
+@@ -311,6 +314,8 @@
+ 
+ #define R_AX_GPIO8_15_FUNC_SEL 0x02D4
+ #define B_AX_PINMUX_GPIO9_FUNC_SEL_MASK GENMASK(7, 4)
++#define B_AX_PINMUX_GPIO8_FUNC_SEL_MASK GENMASK(3, 0)
++#define PINMUX_GPIO_FUNC_SEL_SW_IO 0xf
+ 
+ #define R_AX_EECS_EESK_FUNC_SEL 0x02D8
+ #define B_AX_PINMUX_EESK_FUNC_SEL_MASK GENMASK(7, 4)
+diff -ruN a/drivers/net/wireless/realtek/rtw89/rtw8852c.c b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+--- a/drivers/net/wireless/realtek/rtw89/rtw8852c.c
++++ b/drivers/net/wireless/realtek/rtw89/rtw8852c.c
+@@ -1551,7 +1551,24 @@
+ };
+ #endif
+ 
++/* the WLAN LED, where a board has one, sits on GPIO8 and lights when low */
++static void rtw8852c_led_set(struct rtw89_dev *rtwdev,
++			     enum led_brightness brightness)
++{
++	rtw89_write32_mask(rtwdev, R_AX_GPIO8_15_FUNC_SEL,
++			   B_AX_PINMUX_GPIO8_FUNC_SEL_MASK,
++			   PINMUX_GPIO_FUNC_SEL_SW_IO);
++	rtw89_write32_set(rtwdev, R_AX_GPIO_EXT_CTRL,
++			  B_AX_GPIO_MOD_8 | B_AX_GPIO_IO_SEL_8);
++
++	if (brightness == LED_OFF)
++		rtw89_write32_set(rtwdev, R_AX_GPIO_EXT_CTRL, B_AX_GPIO_OUT_8);
++	else
++		rtw89_write32_clr(rtwdev, R_AX_GPIO_EXT_CTRL, B_AX_GPIO_OUT_8);
++}
++
+ static const struct rtw89_chip_ops rtw8852c_chip_ops = {
++	.led_set		= rtw8852c_led_set,
+ 	.enable_bb_rf		= rtw8852cx_mac_enable_bb_rf,
+ 	.disable_bb_rf		= rtw8852cx_mac_disable_bb_rf,
+ 	.bb_preinit		= NULL,
+diff -ruN a/local-symbols b/local-symbols
+--- a/local-symbols
++++ b/local-symbols
+@@ -429,6 +429,7 @@
+ RTW89_8922AE=
+ RTW89_8922AU=
+ RTW89_DEBUG=
++RTW89_LEDS=
+ RTW89_DEBUGMSG=
+ RTW89_DEBUGFS=
+ WLAN_VENDOR_RSI=

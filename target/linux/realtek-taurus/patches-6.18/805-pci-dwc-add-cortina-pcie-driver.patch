@@ -1,0 +1,39 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] PCI: dwc: add the Realtek RTL9607DQ PCIe driver to the build
+
+Add the Kconfig entry and Makefile line of the DesignWare based PCIe host
+controller driver of the Realtek RTL9607DQ (Cortina Access) SoC.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/pci/controller/dwc/Kconfig
+===================================================================
+--- linux-6.18.60.orig/drivers/pci/controller/dwc/Kconfig
++++ linux-6.18.60/drivers/pci/controller/dwc/Kconfig
+@@ -518,4 +518,14 @@ config PCIE_VISCONTI_HOST
+ 	  Say Y here if you want PCIe controller support on Toshiba Visconti SoC.
+ 	  This driver supports TMPV7708 SoC.
+ 
++config PCIE_CORTINA
++	bool "Realtek RTL9607DQ PCIe controller"
++	depends on OF && (ARM64 || COMPILE_TEST)
++	depends on PCI_MSI
++	select MFD_SYSCON
++	select PCIE_DW_HOST
++	help
++	  Say Y here to enable PCIe controller support on Realtek RTL9607DQ
++	  (Cortina Access) SoCs.
++
+ endmenu
+Index: linux-6.18.60/drivers/pci/controller/dwc/Makefile
+===================================================================
+--- linux-6.18.60.orig/drivers/pci/controller/dwc/Makefile
++++ linux-6.18.60/drivers/pci/controller/dwc/Makefile
+@@ -30,6 +30,7 @@ obj-$(CONFIG_PCIE_TEGRA194) += pcie-tegr
+ obj-$(CONFIG_PCIE_UNIPHIER) += pcie-uniphier.o
+ obj-$(CONFIG_PCIE_UNIPHIER_EP) += pcie-uniphier-ep.o
+ obj-$(CONFIG_PCIE_VISCONTI_HOST) += pcie-visconti.o
++obj-$(CONFIG_PCIE_CORTINA) += pcie-cortina.o
+ obj-$(CONFIG_PCIE_RCAR_GEN4) += pcie-rcar-gen4.o
+ obj-$(CONFIG_PCIE_STM32_HOST) += pcie-stm32.o
+ obj-$(CONFIG_PCIE_STM32_EP) += pcie-stm32-ep.o

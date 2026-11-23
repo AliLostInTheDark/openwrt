@@ -1,0 +1,81 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] wifi: rtw89: add disable_txpwr_lmt module parameter
+
+On external-FEM access point boards (such as RFE type 54), the vendor
+TXPWR_LMT tables can clamp wide-channel 2TX operation (for example 5 GHz
+80 MHz) far below the PA linearity curve in TXPWR_ByRate and below the
+configured regulatory domain ceiling.
+
+Add a boolean module parameter `disable_txpwr_lmt` (default false) to
+rtw89_core. When enabled, rtw89_phy_read_txpwr_limit() and
+rtw89_phy_read_txpwr_limit_ru() bypass the TXPWR_LMT/TXPWR_LMT_RU tables
+and cap instead at mac80211's hw->conf.power_level (or the MAC maximum
+when unset), while still honoring TXPWR_ByRate, SAR and 6 GHz TPE
+constraints.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw89/core.h
++++ b/drivers/net/wireless/realtek/rtw89/core.h
+@@ -8078,6 +8078,8 @@
+ 	return chip_id == RTL8852C || chip_id == RTL8192XB;
+ }
+ 
++extern bool rtw89_disable_txpwr_lmt;
++
+ /* RFE types above 50 drive an external front-end module; 0xff is blank efuse */
+ static inline bool rtw89_rfe_has_efem(struct rtw89_dev *rtwdev)
+ {
+--- a/drivers/net/wireless/realtek/rtw89/core.c
++++ b/drivers/net/wireless/realtek/rtw89/core.c
+@@ -28,7 +28,11 @@
+ 
+ static bool rtw89_disable_ps_mode;
+ module_param_named(disable_ps_mode, rtw89_disable_ps_mode, bool, 0644);
+ MODULE_PARM_DESC(disable_ps_mode, "Set Y to disable low power mode");
++bool rtw89_disable_txpwr_lmt;
++EXPORT_SYMBOL(rtw89_disable_txpwr_lmt);
++module_param_named(disable_txpwr_lmt, rtw89_disable_txpwr_lmt, bool, 0644);
++MODULE_PARM_DESC(disable_txpwr_lmt, "Set Y to bypass TXPWR_LMT tables and use TXPWR_ByRate/regdb");
+ 
+ #define RTW89_DEF_CHAN(_freq, _hw_val, _flags, _band)	\
+ 	{ .center_freq = _freq, .hw_value = _hw_val, .flags = _flags, .band = _band, }
+ 
+ #define RTW89_DEF_CHAN(_freq, _hw_val, _flags, _band)	\
+ 	{ .center_freq = _freq, .hw_value = _hw_val, .flags = _flags, .band = _band, }
+--- a/drivers/net/wireless/realtek/rtw89/phy.c
++++ b/drivers/net/wireless/realtek/rtw89/phy.c
+@@ -2636,6 +2636,16 @@
+ 		return 0;
+ 	}
+ 
++	if (rtw89_disable_txpwr_lmt) {
++		int max_dbm = rtwdev->hw->conf.power_level > 0 ?
++			      min_t(int, rtwdev->hw->conf.power_level, S8_MAX) :
++			      S8_MAX;
++		lmt = rtw89_phy_txpwr_dbm_to_mac(rtwdev, max_dbm);
++		sar = rtw89_query_sar(rtwdev, &sar_parm);
++		cstr = rtw89_phy_get_tpe_constraint(rtwdev, band);
++		return min3(lmt, sar, cstr);
++	}
++
+ 	switch (band) {
+ 	case RTW89_BAND_2G:
+ 		if (has_ant_gain)
+@@ -2916,6 +2926,16 @@
+ 	};
+ 	s8 cstr;
+ 
++	if (rtw89_disable_txpwr_lmt) {
++		int max_dbm = rtwdev->hw->conf.power_level > 0 ?
++			      min_t(int, rtwdev->hw->conf.power_level, S8_MAX) :
++			      S8_MAX;
++		lmt_ru = rtw89_phy_txpwr_dbm_to_mac(rtwdev, max_dbm);
++		sar = rtw89_query_sar(rtwdev, &sar_parm);
++		cstr = rtw89_phy_get_tpe_constraint(rtwdev, band);
++		return min3(lmt_ru, sar, cstr);
++	}
++
+ 	switch (band) {
+ 	case RTW89_BAND_2G:
+ 		if (has_ant_gain)

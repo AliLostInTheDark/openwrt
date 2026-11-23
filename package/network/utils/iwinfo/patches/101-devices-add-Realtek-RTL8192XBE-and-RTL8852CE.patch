@@ -1,0 +1,16 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] devices: add Realtek RTL8192XBE and RTL8852CE
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/devices.txt
++++ b/devices.txt
+@@ -201,6 +201,8 @@
+ 0x02d0 0xa9a6 0x0000 0x0000    0      0  "Cypress"  "CYW43455"
+ 0x02d0 0x4345 0x0000 0x0000    0      0  "Cypress"  "CYW43455"
+ 0x1ae9 0x0310 0x1ae9 0x0000    0      0  "Wilocity" "Wil6210"
++0x10ec 0x0192 0x10ec 0x0192    0      0  "Realtek" "RTL8192XBE"
++0x10ec 0xc852 0x10ec 0xc852    0      0  "Realtek" "RTL8852CE"
+ 
+ # USB devices
+ # 0x0000 | 0x0000 | vendor id | product id | ...
