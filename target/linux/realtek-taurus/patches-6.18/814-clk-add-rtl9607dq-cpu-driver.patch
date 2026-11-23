@@ -1,0 +1,39 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] clk: add the Realtek RTL9607DQ CPU clock driver to the build
+
+Add the Kconfig entry and Makefile line for the CPU clock driver of the
+Realtek RTL9607DQ (Cortina Access) SoC.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/drivers/clk/Kconfig
++++ b/drivers/clk/Kconfig
+@@ -511,6 +511,18 @@ config COMMON_CLK_RPMI
+ 	  Support for clocks based on the clock service group defined by
+ 	  the RISC-V platform management interface (RPMI) specification.
+ 
++config COMMON_CLK_RTL9607DQ
++	tristate "Clock driver for Realtek RTL9607DQ SoC"
++	depends on OF
++	select MFD_SYSCON
++	help
++	  Say Y here to enable the CPU clock driver for the Realtek
++	  RTL9607DQ (Cortina Access) GPON SoC. It provides glitch-free
++	  frequency scaling for the Cortex-A55 cluster via the GLB syscon
++	  CPLL registers, supporting cpufreq-dt and thermal throttling.
++
++	  If built as a module, this driver will be called clk-rtl9607dq.
++
+ source "drivers/clk/actions/Kconfig"
+ source "drivers/clk/analogbits/Kconfig"
+ source "drivers/clk/baikal-t1/Kconfig"
+--- a/drivers/clk/Makefile
++++ b/drivers/clk/Makefile
+@@ -87,6 +87,7 @@ obj-$(CONFIG_CLK_QORIQ)			+= clk-qoriq.o
+ obj-$(CONFIG_COMMON_CLK_RK808)		+= clk-rk808.o
+ obj-$(CONFIG_COMMON_CLK_RP1)            += clk-rp1.o
+ obj-$(CONFIG_COMMON_CLK_RPMI)		+= clk-rpmi.o
++obj-$(CONFIG_COMMON_CLK_RTL9607DQ)	+= clk-rtl9607dq.o
+ obj-$(CONFIG_COMMON_CLK_HI655X)		+= clk-hi655x.o
+ obj-$(CONFIG_COMMON_CLK_S2MPS11)	+= clk-s2mps11.o
+ obj-$(CONFIG_COMMON_CLK_SCMI)           += clk-scmi.o

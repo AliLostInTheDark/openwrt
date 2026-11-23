@@ -1,0 +1,48 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] serial: add the Cortina Access UART driver to the build
+
+Add the Kconfig entries and Makefile line of the UART driver of Cortina
+Access and Realtek RTL9607DQ SoCs.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/tty/serial/Kconfig
+===================================================================
+--- linux-6.18.60.orig/drivers/tty/serial/Kconfig
++++ linux-6.18.60/drivers/tty/serial/Kconfig
+@@ -1619,6 +1619,23 @@ config SERIAL_ESP32_ACM
+ 	  snippet may be used:
+ 	    earlycon=esp32s3acm,mmio32,0x60038000
+ 
++config SERIAL_CORTINA
++	tristate "Cortina Access UART support"
++	depends on OF || COMPILE_TEST
++	select SERIAL_CORE
++	help
++	  This driver supports the UART of Cortina Access and Realtek
++	  RTL9607DQ SoCs.
++
++config SERIAL_CORTINA_CONSOLE
++	bool "Console on Cortina Access UART"
++	depends on SERIAL_CORTINA=y
++	select SERIAL_CORE_CONSOLE
++	select SERIAL_EARLYCON
++	default y
++	help
++	  Enable a system console and earlycon on the Cortina Access UART.
++
+ endmenu
+ 
+ config SERIAL_MCTRL_GPIO
+Index: linux-6.18.60/drivers/tty/serial/Makefile
+===================================================================
+--- linux-6.18.60.orig/drivers/tty/serial/Makefile
++++ linux-6.18.60/drivers/tty/serial/Makefile
+@@ -9,6 +9,7 @@ serial_base-y := serial_core.o serial_ba
+ obj-$(CONFIG_SERIAL_EARLYCON) += earlycon.o
+ obj-$(CONFIG_SERIAL_EARLYCON_SEMIHOST) += earlycon-semihost.o
+ obj-$(CONFIG_SERIAL_EARLYCON_RISCV_SBI) += earlycon-riscv-sbi.o
++obj-$(CONFIG_SERIAL_CORTINA) += cortina-uart.o
+ 
+ # These Sparc drivers have to appear before others such as 8250
+ # which share ttySx minor node space.  Otherwise console device

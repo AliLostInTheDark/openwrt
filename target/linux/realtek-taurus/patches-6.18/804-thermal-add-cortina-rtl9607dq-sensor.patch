@@ -1,0 +1,32 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] thermal: add the Realtek RTL9607DQ sensor driver to the build
+
+Add the Kconfig entry and Makefile line of the thermal driver for the
+on-die sensor of the Realtek RTL9607DQ SoC.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+diff --git a/drivers/thermal/Kconfig b/drivers/thermal/Kconfig
+--- a/drivers/thermal/Kconfig
++++ b/drivers/thermal/Kconfig
+@@ -517,4 +517,11 @@
+ 	  is higher than the high temperature threshold or lower than the low
+ 	  temperature threshold, the interrupt will occur.
+ 
++config CORTINA_THERMAL
++	tristate "Realtek RTL9607DQ (Cortina Access) thermal sensor"
++	depends on OF && HAS_IOMEM
++	help
++	  Enable the on-die temperature sensor of the Realtek RTL9607DQ
++	  GPON SoC.
++
+ endif
+diff --git a/drivers/thermal/Makefile b/drivers/thermal/Makefile
+--- a/drivers/thermal/Makefile
++++ b/drivers/thermal/Makefile
+@@ -67,4 +67,5 @@
+ obj-$(CONFIG_SPRD_THERMAL)	+= sprd_thermal.o
+ obj-$(CONFIG_KHADAS_MCU_FAN_THERMAL)	+= khadas_mcu_fan.o
+ obj-$(CONFIG_LOONGSON2_THERMAL)	+= loongson2_thermal.o
++obj-$(CONFIG_CORTINA_THERMAL)	+= cortina-thermal.o
+ obj-$(CONFIG_THERMAL_CORE_TESTING)	+= testing/

@@ -1,0 +1,38 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] gpio: add the Cortina Access CA77xx GPIO driver to the build
+
+Add the Kconfig entry and Makefile line of the GPIO controller driver of
+Cortina Access CA77xx and Realtek RTL9607DQ SoCs.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/gpio/Kconfig
+===================================================================
+--- linux-6.18.60.orig/drivers/gpio/Kconfig
++++ linux-6.18.60/drivers/gpio/Kconfig
+@@ -261,6 +261,13 @@ config GPIO_CLPS711X
+ 	help
+ 	  Say yes here to support GPIO on CLPS711X SoCs.
+ 
++config GPIO_CORTINA_CA77XX
++	tristate "Cortina Access CA77xx GPIO support"
++	depends on OF && HAS_IOMEM
++	help
++	  Say yes here to support the GPIO controller of Cortina Access
++	  CA77xx and Realtek RTL9607DQ SoCs.
++
+ config GPIO_DAVINCI
+ 	tristate "TI Davinci/Keystone GPIO support"
+ 	default y if ARCH_DAVINCI
+Index: linux-6.18.60/drivers/gpio/Makefile
+===================================================================
+--- linux-6.18.60.orig/drivers/gpio/Makefile
++++ linux-6.18.60/drivers/gpio/Makefile
+@@ -52,6 +52,7 @@ obj-$(CONFIG_GPIO_BT8XX)		+= gpio-bt8xx.
+ obj-$(CONFIG_GPIO_CADENCE)		+= gpio-cadence.o
+ obj-$(CONFIG_GPIO_CGBC)			+= gpio-cgbc.o
+ obj-$(CONFIG_GPIO_CLPS711X)		+= gpio-clps711x.o
++obj-$(CONFIG_GPIO_CORTINA_CA77XX)	+= gpio-cortina-ca77xx.o
+ obj-$(CONFIG_GPIO_SNPS_CREG)		+= gpio-creg-snps.o
+ obj-$(CONFIG_GPIO_CROS_EC)		+= gpio-cros-ec.o
+ obj-$(CONFIG_GPIO_CRYSTAL_COVE)		+= gpio-crystalcove.o

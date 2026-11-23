@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/spi/realtek,rtl9607dq-per-spi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek RTL9607DQ peripheral SPI controller
+
+maintainers:
+  - Ifran Ali <khanu.i.i.k.2000@gmail.com>
+
+description:
+  The SPI controller in the peripheral block of the RTL9607DQ. It moves up to
+  12 bytes per hardware access with the chip select asserted for that access
+  only. Boards use it for SLICs and similar low-rate devices.
+
+allOf:
+  - $ref: spi-controller.yaml#
+
+properties:
+  compatible:
+    const: realtek,rtl9607dq-per-spi
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    spi@f43290d8 {
+        compatible = "realtek,rtl9607dq-per-spi";
+        reg = <0xf43290d8 0x40>;
+        clocks = <&pclk>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        slic@0 {
+            compatible = "maxlinear,pef32001";
+            reg = <0>;
+            spi-max-frequency = <2500000>;
+            spi-cpol;
+            spi-cpha;
+        };
+    };
