@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/phy/realtek,rtl9607dq-usb-phy.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek RTL9607DQ USB 2.0 and USB 3.0 PHY
+
+maintainers:
+  - Ifran Ali <khanu.i.i.k.2000@gmail.com>
+
+description:
+  The USB PHYs of the RTL9607DQ's DWC3 controller. Cell 0 is the USB 2.0
+  PHY, cell 1 the USB 3.0 PHY on SerDes S2.
+
+properties:
+  compatible:
+    const: realtek,rtl9607dq-usb-phy
+
+  reg:
+    items:
+      - description: USB host configuration and PHY access registers
+      - description: SerDes S2 registers
+
+  reg-names:
+    items:
+      - const: usbcfg
+      - const: serdes
+
+  realtek,glb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: The GLB syscon holding the USB and SerDes resets.
+
+  "#phy-cells":
+    const: 1
+
+  vbus-supply:
+    description: Regulator switching the USB VBUS of the host ports.
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - realtek,glb
+  - "#phy-cells"
+
+additionalProperties: false
+
+examples:
+  - |
+    usb-phy@f432b000 {
+        compatible = "realtek,rtl9607dq-usb-phy";
+        reg = <0xf432b000 0x60>,
+              <0xf4337000 0x1000>;
+        reg-names = "usbcfg", "serdes";
+        realtek,glb = <&glb>;
+        #phy-cells = <1>;
+    };

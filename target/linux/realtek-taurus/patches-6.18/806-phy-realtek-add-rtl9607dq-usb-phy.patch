@@ -1,0 +1,34 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] phy: realtek: add the RTL9607DQ USB PHY driver to the build
+
+Add the Kconfig entry and Makefile line of the USB 2.0/3.0 PHY driver of
+the Realtek RTL9607DQ SoC.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/phy/realtek/Kconfig
+===================================================================
+--- linux-6.18.60.orig/drivers/phy/realtek/Kconfig
++++ linux-6.18.60/drivers/phy/realtek/Kconfig
+@@ -30,3 +30,12 @@ config PHY_RTK_RTD_USB3PHY
+ 	  of the parameters.
+ 
+ endif # ARCH_REALTEK || COMPILE_TEST
++
++config PHY_RTL9607DQ_USB
++	tristate "Realtek RTL9607DQ USB 2.0/3.0 PHY driver"
++	depends on OF && HAS_IOMEM
++	select GENERIC_PHY
++	select MFD_SYSCON
++	help
++	  Enable the USB 2.0 and USB 3.0 PHYs of the Realtek RTL9607DQ
++	  (Cortina Access) GPON SoC, used by its DWC3 host controller.
+Index: linux-6.18.60/drivers/phy/realtek/Makefile
+===================================================================
+--- linux-6.18.60.orig/drivers/phy/realtek/Makefile
++++ linux-6.18.60/drivers/phy/realtek/Makefile
+@@ -1,3 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-$(CONFIG_PHY_RTK_RTD_USB2PHY)	+= phy-rtk-usb2.o
+ obj-$(CONFIG_PHY_RTK_RTD_USB3PHY)	+= phy-rtk-usb3.o
++obj-$(CONFIG_PHY_RTL9607DQ_USB)	+= phy-rtl9607dq-usb.o
