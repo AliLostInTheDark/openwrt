@@ -1,0 +1,33 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] net: add the GPON protocol core to the build
+
+drivers/net/gpon holds the PLOAM, OMCI and GEM handling shared by the
+GPON MAC drivers.  Hook it into the network driver build.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/net/Kconfig
+===================================================================
+--- linux-6.18.60.orig/drivers/net/Kconfig
++++ linux-6.18.60/drivers/net/Kconfig
+@@ -516,6 +516,8 @@ source "drivers/net/ethernet/Kconfig"
+ 
+ source "drivers/net/fddi/Kconfig"
+ 
++source "drivers/net/gpon/Kconfig"
++
+ source "drivers/net/hippi/Kconfig"
+ 
+ source "drivers/net/ipa/Kconfig"
+Index: linux-6.18.60/drivers/net/Makefile
+===================================================================
+--- linux-6.18.60.orig/drivers/net/Makefile
++++ linux-6.18.60/drivers/net/Makefile
+@@ -55,6 +55,7 @@ obj-y += dsa/
+ endif
+ obj-$(CONFIG_ETHERNET) += ethernet/
+ obj-$(CONFIG_FDDI) += fddi/
++obj-$(CONFIG_GPON_CORE) += gpon/
+ obj-$(CONFIG_HIPPI) += hippi/
+ obj-$(CONFIG_HAMRADIO) += hamradio/
+ obj-$(CONFIG_QCOM_IPA) += ipa/
