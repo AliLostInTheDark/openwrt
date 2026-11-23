@@ -1,0 +1,20 @@
+{
+	"luci-app-uvoice": {
+		"description": "Grant access to the uvoice telephony configuration and status",
+		"read": {
+			"file": {
+				"/usr/share/udsp/regions": [ "list" ]
+			},
+			"ubus": {
+				"voice": [ "status", "cdr" ]
+			},
+			"uci": [ "voip" ]
+		},
+		"write": {
+			"ubus": {
+				"voice": [ "line_test" ]
+			},
+			"uci": [ "voip" ]
+		}
+	}
+}

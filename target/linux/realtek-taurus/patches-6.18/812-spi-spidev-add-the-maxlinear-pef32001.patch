@@ -1,0 +1,29 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] spi: spidev: add the MaxLinear PEF32001
+
+The PEF32001 (DUSLIC-XS1) is a single-channel SLIC. Its firmware download,
+calibration and line control run in a userspace voice stack, the way the
+Silicon Labs Si3210 already listed here is driven, so bind it to spidev.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/spi/spidev.c
+===================================================================
+--- linux-6.18.60.orig/drivers/spi/spidev.c
++++ linux-6.18.60/drivers/spi/spidev.c
+@@ -694,6 +694,7 @@
+ 	{ .name = /* lwn */ "bk4" },
+ 	{ .name = /* lwn */ "bk4-spi" },
+ 	{ .name = /* menlo */ "m53cpld" },
++	{ .name = /* maxlinear */ "pef32001" },
+ 	{ .name = /* micron */ "spi-authenta" },
+ 	{ .name = /* rohm */ "bh2228fv" },
+ 	{ .name = /* rohm */ "dh2228fv" },
+@@ -727,6 +728,7 @@
+ 	{ .compatible = "lwn,bk4", .data = &spidev_of_check },
+ 	{ .compatible = "lwn,bk4-spi", .data = &spidev_of_check },
+ 	{ .compatible = "menlo,m53cpld", .data = &spidev_of_check },
++	{ .compatible = "maxlinear,pef32001", .data = &spidev_of_check },
+ 	{ .compatible = "micron,spi-authenta", .data = &spidev_of_check },
+ 	{ .compatible = "rohm,bh2228fv", .data = &spidev_of_check },
+ 	{ .compatible = "rohm,dh2228fv", .data = &spidev_of_check },

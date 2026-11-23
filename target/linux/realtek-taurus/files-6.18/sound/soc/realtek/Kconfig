@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menu "Realtek"
+
+config SND_SOC_RTL9607DQ_SSP
+	tristate "Realtek RTL9607DQ SSP PCM/TDM support"
+	depends on OF && HAS_IOMEM && HAS_DMA
+	help
+	  Say Y or M here to enable the PCM/TDM interface (SSP) of the
+	  Realtek RTL9607DQ SoC, which carries the voice samples of an FXS
+	  SLIC.
+
+endmenu

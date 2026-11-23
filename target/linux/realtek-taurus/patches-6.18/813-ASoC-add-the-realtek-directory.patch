@@ -1,0 +1,28 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] ASoC: add the Realtek directory to the build
+
+Hook sound/soc/realtek into the ASoC Kconfig and Makefile for the
+RTL9607DQ SSP driver.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+--- a/sound/soc/Kconfig
++++ b/sound/soc/Kconfig
+@@ -123,6 +123,7 @@
+ source "sound/soc/mxs/Kconfig"
+ source "sound/soc/pxa/Kconfig"
+ source "sound/soc/qcom/Kconfig"
++source "sound/soc/realtek/Kconfig"
+ source "sound/soc/renesas/Kconfig"
+ source "sound/soc/rockchip/Kconfig"
+ source "sound/soc/samsung/Kconfig"
+--- a/sound/soc/Makefile
++++ b/sound/soc/Makefile
+@@ -65,6 +65,7 @@
+ obj-$(CONFIG_SND_SOC)	+= kirkwood/
+ obj-$(CONFIG_SND_SOC)	+= pxa/
+ obj-$(CONFIG_SND_SOC)	+= qcom/
++obj-$(CONFIG_SND_SOC)	+= realtek/
+ obj-$(CONFIG_SND_SOC)	+= renesas/
+ obj-$(CONFIG_SND_SOC)	+= rockchip/
+ obj-$(CONFIG_SND_SOC)	+= samsung/

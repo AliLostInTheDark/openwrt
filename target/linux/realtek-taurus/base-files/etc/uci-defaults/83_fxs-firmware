@@ -1,0 +1,46 @@
+#!/bin/sh
+# Copy the SLIC firmware and line coefficients the udsp DUSLIC-XS plug-in
+# loads from the stock root file system, which is still on flash. The vendor
+# files cannot be redistributed, so the image does not carry them.
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+vsol,hg325ax30)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+dir=/lib/firmware/dxs
+[ -f /usr/lib/udsp/udsp-slic-dxs.so ] || exit 0
+[ -s "$dir/fw_dxs.bin" ] && [ -s "$dir/bbd.bin" ] && exit 0
+
+# stock_copy <volume>: mount one stock root file system read-only and copy
+stock_copy() {
+	local vol dev mnt=/tmp/stock-rootfs ret=1
+
+	for vol in /sys/class/ubi/ubi*_*; do
+		[ "$(cat "$vol/name" 2>/dev/null)" = "$1" ] && dev=${vol##*/} && break
+	done
+	[ -n "$dev" ] || return 1
+
+	ubiblock -c "/dev/$dev" 2>/dev/null || return 1
+	mkdir -p "$mnt"
+	if mount -t squashfs -o ro "/dev/ubiblock${dev#ubi}" "$mnt"; then
+		mkdir -p "$dir"
+		cp "$mnt/image/fw_dxs-2.1.3.bin" "$dir/fw_dxs.bin" &&
+			cp "$mnt/image/IBB12_R600.BIN" "$dir/bbd.bin" && ret=0
+		umount "$mnt"
+	fi
+	ubiblock -r "/dev/$dev"
+	rmdir "$mnt"
+
+	return $ret
+}
+
+stock_copy ubi_r0 || stock_copy ubi_r1 ||
+	logger -t fxs "no stock root file system with the SLIC firmware found"
+
+exit 0

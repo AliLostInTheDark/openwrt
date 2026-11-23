@@ -1,0 +1,51 @@
+#!/bin/sh
+# Seed the voice stack for the FXS port: the DUSLIC-XS plug-in on the
+# peripheral SPI bus, the SSP PCM device, one line and the codec order of an
+# A-law country: G.711 A-law, G.711 mu-law, G.729. A configuration the
+# user or provisioning wrote is kept.
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+vsol,hg325ax30)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+[ -x /usr/sbin/uvoiced ] || exit 0
+[ -f /etc/config/voip ] && exit 0
+
+touch /etc/config/voip
+
+uci -q batch <<-EOT
+	set voip.base=base
+	set voip.base.enabled='1'
+	set voip.base.channels='1'
+	set voip.base.region='IN'
+	set voip.hal=hal
+	set voip.hal.slic_plugin='/usr/lib/udsp/udsp-slic-dxs.so'
+	set voip.hal.spidev='/dev/spidev1.0'
+	set voip.hal.gpio_interrupt='none'
+	set voip.hal.tdm_playback='hw:0,0'
+	set voip.hal.tdm_capture='hw:0,0'
+	set voip.hal.channels='1'
+	set voip.hal.sample_rate='8000'
+	set voip.hal.led='green:tel'
+	set voip.channel1=channel
+	set voip.channel1.id='0'
+	set voip.channel1.enabled='1'
+	set voip.pcma=codec
+	set voip.pcma.tr104_id='2'
+	set voip.pcma.priority='1'
+	set voip.pcmu=codec
+	set voip.pcmu.tr104_id='1'
+	set voip.pcmu.priority='2'
+	set voip.g729=codec
+	set voip.g729.tr104_id='3'
+	set voip.g729.priority='3'
+	commit voip
+EOT
+
+exit 0

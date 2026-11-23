@@ -1,0 +1,5 @@
+#!/bin/sh
+# NTP set the clock: push the date and time to the phones that sync theirs.
+[ "$ACTION" = step ] || [ "$ACTION" = stratum ] || exit 0
+ubus -t 2 call voice time_sync >/dev/null 2>&1
+exit 0

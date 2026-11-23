@@ -1,0 +1,38 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# The phone LED follows the voice service: voip.hal.led names it.
+
+START=97
+STOP=09
+USE_PROCD=1
+
+led_get() {
+	local led
+
+	led="$(uci -q get voip.hal.led)"
+	[ -n "$led" ] && [ -d "/sys/class/leds/$led" ] && echo "$led"
+}
+
+start_service() {
+	local led
+
+	led="$(led_get)" || return 0
+
+	procd_open_instance
+	procd_set_param command /usr/bin/ucode /usr/share/uvoice/uvoice-led.uc "$led"
+	procd_set_param respawn
+	procd_close_instance
+}
+
+stop_service() {
+	local led
+
+	led="$(led_get)" || return 0
+	echo none > "/sys/class/leds/$led/trigger"
+	echo 0 > "/sys/class/leds/$led/brightness"
+}
+
+service_triggers() {
+	procd_add_reload_trigger voip
+}

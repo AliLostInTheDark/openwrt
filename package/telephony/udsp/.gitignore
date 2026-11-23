@@ -1,0 +1,9 @@
+/build/
+__pycache__/
+*.o
+*.a
+*.so
+*.lecr
+*-ref.wav
+*-mic.wav
+*-out.wav

@@ -1,0 +1,51 @@
+{
+	"admin/services/uvoice": {
+		"title": "Telephony",
+		"order": 60,
+		"action": {
+			"type": "alias",
+			"path": "admin/services/uvoice/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-uvoice" ],
+			"fs": { "/usr/sbin/uvoiced": "executable" },
+			"uci": { "voip": true }
+		}
+	},
+
+	"admin/services/uvoice/status": {
+		"title": "Status",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "uvoice/status"
+		}
+	},
+
+	"admin/services/uvoice/settings": {
+		"title": "Settings",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "uvoice/settings"
+		}
+	},
+
+	"admin/services/uvoice/lines": {
+		"title": "Lines",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "uvoice/lines"
+		}
+	},
+
+	"admin/services/uvoice/calls": {
+		"title": "Call Log",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "uvoice/calls"
+		}
+	}
+}
