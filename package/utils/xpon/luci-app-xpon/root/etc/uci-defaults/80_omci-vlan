@@ -1,0 +1,6 @@
+#!/bin/sh
+
+[ -n "$(uci -q get omci.vlan)" ] && exit 0
+
+uci set omci.vlan=vlan
+uci commit omci

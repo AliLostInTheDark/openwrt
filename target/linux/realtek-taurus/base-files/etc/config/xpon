@@ -1,0 +1,3 @@
+config xpon 'main'
+	# PON MAC mode: 'gpon' (default, ITU-T G.984 + OMCI) or 'epon' (IEEE 802.3ah + OAM).
+	option mode 'gpon'

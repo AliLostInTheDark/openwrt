@@ -1,0 +1,13 @@
+#!/bin/sh
+# Ensure /etc/config/xpon exists while preserving existing /etc/config/omci
+# and /etc/config/epon user settings across upgrades.
+
+if [ ! -s /etc/config/xpon ]; then
+	uci -q batch <<-EOF
+		set xpon.main=xpon
+		set xpon.main.mode='gpon'
+		commit xpon
+	EOF
+fi
+
+exit 0

@@ -1,0 +1,445 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * OMCI OLT interoperability profiles
+ *
+ * Profiles describe policy deviations required by selected OLT families.
+ * Automatic detection is the default and uses OLT-G identification attributes
+ * only as a hint. Until OLT-G is available, the effective profile is generic.
+ */
+
+#ifdef __KERNEL__
+#include <linux/export.h>
+#include <linux/errno.h>
+#include <linux/string.h>
+#else
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#endif
+
+#include "me.h"
+
+#define OMCI_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+struct omci_profile_desc {
+	__u8 profile;
+	__u32 quirks;
+	const char *name;
+};
+
+static const struct omci_profile_desc omci_profiles[] = {
+	{
+		.profile = OMCI_OLT_PROFILE_GENERIC,
+		.name = "generic",
+	}, {
+		.profile = OMCI_OLT_PROFILE_AUTO,
+		.name = "auto",
+	}, {
+		.profile = OMCI_OLT_PROFILE_NOKIA_ALCL,
+		.quirks = OMCI_OLT_QUIRK_SANITIZE_VERSION |
+			  OMCI_OLT_QUIRK_VENDOR_SPECIFIC_MES,
+		.name = "nokia-alcl",
+	}, {
+		.profile = OMCI_OLT_PROFILE_DASAN,
+		.quirks = OMCI_OLT_QUIRK_ALLOW_SET_CREATE |
+			  OMCI_OLT_QUIRK_FAKE_UNSUPPORTED_SUCCESS |
+			  OMCI_OLT_QUIRK_IGNORE_UNSUPPORTED_UNI |
+			  OMCI_OLT_QUIRK_DASAN_MULTICAST_ANI,
+		.name = "dasan",
+	}, {
+		.profile = OMCI_OLT_PROFILE_HUAWEI,
+		.quirks = OMCI_OLT_QUIRK_VENDOR_SPECIFIC_MES,
+		.name = "huawei",
+	}, {
+		.profile = OMCI_OLT_PROFILE_FIBERHOME,
+		.quirks = OMCI_OLT_QUIRK_ALLOW_SET_CREATE |
+			  OMCI_OLT_QUIRK_FULL_UNI_ENTITY_ID |
+			  OMCI_OLT_QUIRK_VENDOR_SPECIFIC_MES,
+		.name = "fiberhome",
+	}, {
+		.profile = OMCI_OLT_PROFILE_ZTE,
+		.quirks = OMCI_OLT_QUIRK_ALLOW_SET_CREATE |
+			  OMCI_OLT_QUIRK_ZTE_VLAN_TAG_MODE |
+			  OMCI_OLT_QUIRK_VENDOR_SPECIFIC_MES,
+		.name = "zte",
+	}, {
+		.profile = OMCI_OLT_PROFILE_GENEXIS,
+		.quirks = OMCI_OLT_QUIRK_VENDOR_SPECIFIC_MES,
+		.name = "genexis",
+	},
+};
+
+#ifndef __KERNEL__
+enum omci_custom_match {
+	OMCI_MATCH_VENDOR = 1,
+	OMCI_MATCH_EQUIP = 2,
+};
+
+struct omci_custom_profile {
+	__u8 profile;
+	__u8 match_type;
+	__u32 quirks;
+	char name[32];
+	char token[24];
+};
+
+static struct omci_custom_profile omci_custom_profiles[OMCI_OLT_PROFILE_CUSTOM_MAX];
+static unsigned int omci_custom_profile_count;
+
+static const struct {
+	const char *name;
+	__u32 bit;
+} omci_quirk_names[] = {
+	{ "sanitize_version", OMCI_OLT_QUIRK_SANITIZE_VERSION },
+	{ "allow_set_create", OMCI_OLT_QUIRK_ALLOW_SET_CREATE },
+	{ "fake_unsupported", OMCI_OLT_QUIRK_FAKE_UNSUPPORTED_SUCCESS },
+	{ "ignore_unsupported_uni", OMCI_OLT_QUIRK_IGNORE_UNSUPPORTED_UNI },
+	{ "vendor_mes", OMCI_OLT_QUIRK_VENDOR_SPECIFIC_MES },
+	{ "full_uni_id", OMCI_OLT_QUIRK_FULL_UNI_ENTITY_ID },
+	{ "zte_vlan_tag", OMCI_OLT_QUIRK_ZTE_VLAN_TAG_MODE },
+	{ "dasan_mcast_ani", OMCI_OLT_QUIRK_DASAN_MULTICAST_ANI },
+};
+
+static bool omci_parse_quirks(const char *spec, __u32 *out)
+{
+	char buf[192];
+	char *p, *tok;
+	__u32 mask = 0;
+
+	if (!spec || !*spec || strlen(spec) >= sizeof(buf))
+		return false;
+	strcpy(buf, spec);
+	if (!strcasecmp(buf, "none") || !strcmp(buf, "0")) {
+		*out = 0;
+		return true;
+	}
+	p = buf;
+	while ((tok = strsep(&p, ",")) != NULL) {
+		unsigned int i;
+		bool matched = false;
+
+		if (!*tok)
+			continue;
+		if (!strncasecmp(tok, "0x", 2)) {
+			char *end = NULL;
+			unsigned long v = strtoul(tok, &end, 16);
+
+			if (!end || *end || v > 0xffffffffUL)
+				return false;
+			mask |= (__u32)v;
+			continue;
+		}
+		for (i = 0; i < OMCI_ARRAY_SIZE(omci_quirk_names); i++) {
+			if (!strcasecmp(tok, omci_quirk_names[i].name)) {
+				mask |= omci_quirk_names[i].bit;
+				matched = true;
+				break;
+			}
+		}
+		if (!matched)
+			return false;
+	}
+	*out = mask;
+	return true;
+}
+
+void omci_profiles_clear_custom(void)
+{
+	memset(omci_custom_profiles, 0, sizeof(omci_custom_profiles));
+	omci_custom_profile_count = 0;
+}
+
+unsigned int omci_profiles_custom_count(void)
+{
+	return omci_custom_profile_count;
+}
+
+int omci_profiles_load_file(const char *path)
+{
+	FILE *fp;
+	char line[256];
+	unsigned int loaded = 0;
+
+	omci_profiles_clear_custom();
+	if (!path || !*path)
+		return 0;
+	fp = fopen(path, "r");
+	if (!fp)
+		return errno == ENOENT ? 0 : -errno;
+
+	while (fgets(line, sizeof(line), fp)) {
+		char *s = line;
+		char name[33], match[17], token[25], quirks_str[193];
+		struct omci_custom_profile *entry;
+		__u32 quirks = 0;
+		__u8 match_type;
+
+		while (*s && isspace((unsigned char)*s))
+			s++;
+		if (!*s || *s == '#')
+			continue;
+		/* one byte wider than the stored fields: a longer token is refused, not split */
+		if (sscanf(s, "%32s %16s %24s %192s",
+			   name, match, token, quirks_str) != 4)
+			continue;
+		if (strlen(name) >= sizeof(entry->name) ||
+		    strlen(match) > 15 || strlen(token) >= sizeof(entry->token) ||
+		    strlen(quirks_str) > 191)
+			continue;
+		if (!strcasecmp(match, "vendor"))
+			match_type = OMCI_MATCH_VENDOR;
+		else if (!strcasecmp(match, "equip"))
+			match_type = OMCI_MATCH_EQUIP;
+		else
+			continue;
+		if (!omci_parse_quirks(quirks_str, &quirks))
+			continue;
+		if (loaded >= OMCI_OLT_PROFILE_CUSTOM_MAX)
+			break;
+		entry = &omci_custom_profiles[loaded];
+		entry->profile = (__u8)(OMCI_OLT_PROFILE_CUSTOM_BASE + loaded);
+		entry->match_type = match_type;
+		entry->quirks = quirks;
+		snprintf(entry->name, sizeof(entry->name), "%.*s",
+			 (int)sizeof(entry->name) - 1, name);
+		snprintf(entry->token, sizeof(entry->token), "%.*s",
+			 (int)sizeof(entry->token) - 1, token);
+		loaded++;
+	}
+	fclose(fp);
+	omci_custom_profile_count = loaded;
+	return (int)loaded;
+}
+
+static const struct omci_custom_profile *omci_custom_find(__u8 profile)
+{
+	unsigned int i;
+
+	for (i = 0; i < omci_custom_profile_count; i++)
+		if (omci_custom_profiles[i].profile == profile)
+			return &omci_custom_profiles[i];
+
+	return NULL;
+}
+#endif
+
+static const struct omci_profile_desc *omci_profile_find(__u8 profile)
+{
+	unsigned int i;
+
+	for (i = 0; i < OMCI_ARRAY_SIZE(omci_profiles); i++)
+		if (omci_profiles[i].profile == profile)
+			return &omci_profiles[i];
+
+	return NULL;
+}
+
+bool omci_profile_valid(__u8 profile)
+{
+#ifndef __KERNEL__
+	if (omci_custom_find(profile))
+		return true;
+#endif
+	return !!omci_profile_find(profile);
+}
+
+bool omci_profile_forceable(__u8 profile)
+{
+	return profile == OMCI_OLT_PROFILE_UNSPEC ||
+	       (profile != OMCI_OLT_PROFILE_AUTO && omci_profile_valid(profile));
+}
+
+__u32 omci_profile_quirks(__u8 profile)
+{
+	const struct omci_profile_desc *desc;
+
+#ifndef __KERNEL__
+	const struct omci_custom_profile *custom = omci_custom_find(profile);
+
+	if (custom)
+		return custom->quirks;
+#endif
+	desc = omci_profile_find(profile);
+	return desc ? desc->quirks : 0;
+}
+
+const char *omci_olt_profile_name(__u8 profile)
+{
+	const struct omci_profile_desc *desc;
+
+#ifndef __KERNEL__
+	const struct omci_custom_profile *custom = omci_custom_find(profile);
+
+	if (custom)
+		return custom->name;
+#endif
+	desc = omci_profile_find(profile);
+	return desc ? desc->name : "unspecified";
+}
+
+#ifdef __KERNEL__
+EXPORT_SYMBOL_GPL(omci_olt_profile_name);
+#endif
+
+static bool omci_profile_vendor_is(const struct omci_olt_g *olt,
+				   const char vendor[OMCI_OLT_VENDOR_ID_LEN])
+{
+	return olt && olt->vendor_id_valid &&
+	       !strncasecmp(olt->vendor_id, vendor, OMCI_OLT_VENDOR_ID_LEN);
+}
+
+static bool omci_profile_field_contains(const char *field, size_t len,
+					const char *token)
+{
+	size_t token_len = strlen(token);
+	size_t i;
+
+	if (!token_len || token_len > len)
+		return false;
+
+	for (i = 0; i + token_len <= len && field[i]; i++)
+		if (!strncasecmp(field + i, token, token_len))
+			return true;
+
+	return false;
+}
+
+__u8 omci_profile_detect(const struct omci_olt_g *olt)
+{
+	if (!olt || !olt->valid)
+		return OMCI_OLT_PROFILE_GENERIC;
+
+#ifndef __KERNEL__
+	{
+		unsigned int i;
+
+		for (i = 0; i < omci_custom_profile_count; i++) {
+			const struct omci_custom_profile *c = &omci_custom_profiles[i];
+
+			if (c->match_type == OMCI_MATCH_VENDOR &&
+			    olt->vendor_id_valid &&
+			    !strncasecmp(olt->vendor_id, c->token,
+					 OMCI_OLT_VENDOR_ID_LEN))
+				return c->profile;
+			if (c->match_type == OMCI_MATCH_EQUIP &&
+			    olt->equipment_id_valid &&
+			    omci_profile_field_contains(olt->equipment_id,
+							OMCI_OLT_EQUIPMENT_ID_LEN,
+							c->token))
+				return c->profile;
+		}
+	}
+#endif
+
+	if (omci_profile_vendor_is(olt, "ALCL") ||
+	    omci_profile_vendor_is(olt, "NOKI"))
+		return OMCI_OLT_PROFILE_NOKIA_ALCL;
+	if (omci_profile_vendor_is(olt, "DSNW") ||
+	    omci_profile_vendor_is(olt, "DASA"))
+		return OMCI_OLT_PROFILE_DASAN;
+	if (omci_profile_vendor_is(olt, "HWTC") ||
+	    omci_profile_vendor_is(olt, "HWTI"))
+		return OMCI_OLT_PROFILE_HUAWEI;
+	if (omci_profile_vendor_is(olt, "FHTT") ||
+	    omci_profile_vendor_is(olt, "FHTC"))
+		return OMCI_OLT_PROFILE_FIBERHOME;
+	if (omci_profile_vendor_is(olt, "ZTEG") ||
+	    omci_profile_vendor_is(olt, "ZTEC"))
+		return OMCI_OLT_PROFILE_ZTE;
+	if (omci_profile_vendor_is(olt, "GNXS"))
+		return OMCI_OLT_PROFILE_GENEXIS;
+
+	if (olt->equipment_id_valid) {
+		if (omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"NOKIA") ||
+		    omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"ALCATEL"))
+			return OMCI_OLT_PROFILE_NOKIA_ALCL;
+		if (omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"DASAN"))
+			return OMCI_OLT_PROFILE_DASAN;
+		if (omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"HUAWEI"))
+			return OMCI_OLT_PROFILE_HUAWEI;
+		if (omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"FIBERHOME"))
+			return OMCI_OLT_PROFILE_FIBERHOME;
+		if (omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"ZTE"))
+			return OMCI_OLT_PROFILE_ZTE;
+		if (omci_profile_field_contains(olt->equipment_id,
+						OMCI_OLT_EQUIPMENT_ID_LEN,
+						"GENEXIS"))
+			return OMCI_OLT_PROFILE_GENEXIS;
+	}
+
+	return OMCI_OLT_PROFILE_GENERIC;
+}
+
+void omci_profile_sanitize_olt_g(struct omci_olt_g *olt, __u32 quirks)
+{
+	unsigned int i;
+
+	if (!olt || !(quirks & OMCI_OLT_QUIRK_SANITIZE_VERSION) ||
+	    !olt->version_valid)
+		return;
+
+	for (i = 0; i < OMCI_OLT_VERSION_LEN && olt->version[i]; i++)
+		if (olt->version[i] < ' ' || olt->version[i] > '~')
+			olt->version[i] = ' ';
+}
+
+__u16 omci_profile_normalize_uni_entity(__u8 profile, __u16 entity_id)
+{
+	if (omci_profile_quirks(profile) & OMCI_OLT_QUIRK_FULL_UNI_ENTITY_ID)
+		return entity_id;
+
+	return entity_id & 0xff;
+}
+
+void omci_profile_normalize_vlan_rule(__u8 profile,
+				      struct omci_extended_vlan_rule *rule)
+{
+	if (!rule || !(omci_profile_quirks(profile) &
+		       OMCI_OLT_QUIRK_ZTE_VLAN_TAG_MODE))
+		return;
+
+	/*
+	 * The vendor SDK forces a TPID and DEI when a ZTE rule produces an
+	 * untagged service. Preserve the wire rule, but normalize the treatment
+	 * consumed by the hardware-independent service resolver.
+	 */
+	if (!rule->tags_to_remove && rule->treat_outer_vid >= 4096 &&
+	    rule->treat_inner_vid >= 4096) {
+		rule->treat_inner_tpid_dei = 1;
+		rule->treat_inner_pbit = rule->treat_inner_pbit < 8 ? rule->treat_inner_pbit : 8;
+	}
+}
+
+int omci_profile_resolve_multicast_ani(__u8 profile,
+				       __u16 bridge_port_entity_id,
+				       __u16 *ani_entity_id)
+{
+	if (!ani_entity_id)
+		return -EINVAL;
+	if (!(omci_profile_quirks(profile) &
+	      OMCI_OLT_QUIRK_DASAN_MULTICAST_ANI))
+		return -EOPNOTSUPP;
+
+	/*
+	 * The legacy SDK associates a multicast GEM with the ANI allocated to
+	 * its WAN MAC bridge port. Keep that stable semantic identifier in the
+	 * normalized service; the hardware backend owns index allocation.
+	 */
+	*ani_entity_id = bridge_port_entity_id;
+	return 0;
+}

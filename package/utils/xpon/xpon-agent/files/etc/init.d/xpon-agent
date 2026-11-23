@@ -1,0 +1,21 @@
+#!/bin/sh /etc/rc.common
+# Apply the configured PON mode (gpon or epon) to /sys/class/xpon/pon0 before
+# omcid and epon-oamd start.
+
+START=18
+
+boot() {
+	start
+}
+
+start() {
+	local mode cur
+
+	[ -w /sys/class/xpon/pon0/mode_current ] || return 0
+	mode=$(uci -q get xpon.main.mode)
+	[ "$mode" = "epon" ] || mode="gpon"
+	cur=$(cat /sys/class/xpon/pon0/mode_current 2>/dev/null)
+	[ "$cur" = "$mode" ] && return 0
+
+	echo "$mode" > /sys/class/xpon/pon0/mode_current
+}

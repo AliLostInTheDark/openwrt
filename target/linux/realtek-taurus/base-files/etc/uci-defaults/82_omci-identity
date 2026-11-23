@@ -1,0 +1,46 @@
+#!/bin/sh
+# Seed the GPON identity (omci.main.serial and omci.main.password) with the
+# values the stock firmware set, from its config copy in static_conf. Values
+# already in UCI are kept.
+
+. /lib/functions.sh
+. /lib/functions/system.sh
+
+case "$(board_name)" in
+vsol,hg325ax30)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+[ -z "$(uci -q get omci.main.serial)" ] || exit 0
+
+mtd=$(find_mtd_chardev static_conf)
+[ -n "$mtd" ] || exit 0
+
+# static_conf: xz tar of the stock config at 0x500, its length at 0x88
+len=$(dd if="$mtd" bs=1 skip=$((0x88)) count=8 2>/dev/null)
+case "$len" in
+*[!0-9a-f]* | "")
+	exit 0
+	;;
+esac
+
+# stock_get <file> <name>: a value from one of the stock config files
+stock_get() {
+	tail -c +$((0x500 + 1)) "$mtd" | head -c $((0x$len)) |
+		xz -dc 2>/dev/null | tar -xOf - "./$1" 2>/dev/null |
+		sed -n "s/.*Name=\"$2\"[^V]*Value=\"\([^\"]*\)\".*/\1/p" | head -n 1
+}
+
+# stock keeps the serial number in the hardware settings, the password in
+# the user configuration
+serial=$(stock_get config_hs.xml GPON_SN)
+password=$(stock_get config.xml GPON_PLOAM_PASSWD)
+
+[ -n "$serial" ] && uci set omci.main.serial="$serial"
+[ -n "$password" ] && uci set omci.main.password="$password"
+uci commit omci
+
+exit 0

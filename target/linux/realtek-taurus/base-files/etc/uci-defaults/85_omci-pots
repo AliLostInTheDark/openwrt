@@ -1,0 +1,21 @@
+#!/bin/sh
+# The HG325AX30 has one analogue phone port: tell the OLT about it, unless
+# the user or provisioning already set the count.
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+vsol,hg325ax30)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+[ -f /etc/config/omci ] || exit 0
+[ -n "$(uci -q get omci.main.pots_count)" ] && exit 0
+
+uci -q set omci.main.pots_count='1'
+uci -q commit omci
+
+exit 0

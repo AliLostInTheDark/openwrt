@@ -1,0 +1,80 @@
+/* Bootstrap owns control sizes, spacing and responsive form layout. */
+:is(.omci-page, .omci-mib-editor) .cbi-value-field {
+	min-width: 0;
+}
+:is(.omci-page, .omci-mib-editor) :is(input, select, textarea, .cbi-dynlist, .control-group) {
+	box-sizing: border-box;
+	max-width: 100%;
+}
+:is(.omci-page, .omci-mib-editor) :is(.cbi-value-title, .cbi-value-description, .cbi-map-descr, .cbi-section-descr) {
+	overflow-wrap: anywhere;
+}
+.omci-page :is(.omci-card, .xpon-panel, .xpon-card) {
+	min-width: 0;
+}
+.omci-page .table td:not(.nowrap) {
+	overflow-wrap: anywhere;
+}
+.omci-page pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.omci-table-scroll {
+	max-width: 100%;
+	overflow-x: auto;
+	padding-bottom: .75rem;
+}
+/* Preserve the MIB column alignment within its own scroll area. */
+.omci-page .omci-mib-table {
+	display: table;
+}
+.omci-page .omci-mib-table .tr {
+	display: table-row;
+}
+.omci-page .omci-mib-table :is(.th, .td) {
+	display: table-cell;
+	vertical-align: top;
+}
+.omci-page .omci-mib-table .td::before {
+	display: none;
+}
+
+.omci-mib-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.omci-page .omci-mib-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.omci-mib-filter select { width: auto; min-width: 0; max-width: 100%; }
+.omci-mib-table { min-width: 760px; }
+.omci-mib-table th { white-space: nowrap; }
+.omci-page .omci-mib-class { margin: 0 0 8px; padding: 0; }
+.omci-page .omci-mib-class { border: 1px solid var(--border, var(--border-color-medium, #ccc)); border-radius: 6px; }
+.omci-mib-class > summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 10px 12px; cursor: pointer; }
+.omci-page .omci-mib-class > .xpon-grid { gap: 8px; margin: 0; padding: 0 8px 8px; }
+.omci-mib-class-info, .omci-mib-origin { font-size: 12px; opacity: .72; }
+.omci-mib-object-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 8px; }
+.omci-mib-wide { grid-column: 1 / -1; }
+.omci-mib-note { font-size: 12px; opacity: .72; }
+.omci-mib-object h5 { margin: 14px 0 6px; }
+.omci-mib-rules { min-width: 820px; }
+.omci-mib-raw { margin-top: 10px; }
+.omci-mib-raw > summary { font-size: 12px; opacity: .72; cursor: pointer; }
+.omci-page .omci-mib-raw pre, .omci-mib-raw pre { margin: 6px 0 0; font-size: 12px; white-space: pre; overflow-x: auto; }
+.omci-mib-details .omci-mib-object { border: 0; padding: 0; }
+
+:is(.omci-page, .omci-mib-editor) .control-group > input {
+	min-width: 0;
+}
+/* Bootstrap mobile.css uses device width; use the same layout in narrow windows. */
+@media screen and (max-width: 600px) {
+	:is(.omci-page, .omci-mib-editor) .cbi-value:not(.hidden) {
+		display: block;
+	}
+	:is(.omci-page, .omci-mib-editor) .cbi-value-field {
+		width: 100%;
+		margin: 0;
+	}
+	:is(.omci-page, .omci-mib-editor) :is(select, input[type="text"], input[type="password"], .control-group, .cbi-dynlist) {
+		width: 100%;
+	}
+	:is(.omci-page, .omci-mib-editor) input.cbi-input-password {
+		width: calc(100% - 25px);
+	}
+}

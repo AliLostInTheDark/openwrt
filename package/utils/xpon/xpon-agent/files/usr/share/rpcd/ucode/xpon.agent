@@ -1,0 +1,143 @@
+'use strict';
+
+/*
+ * Unified xpon.agent rpcd ucode service: mode management, optical DDM,
+ * and EPON OAM/MAC status/controls alongside omci.agent.
+ */
+
+import { readfile, writefile, unlink, lsdir } from 'fs';
+import { cursor } from 'uci';
+
+const XPON_SYSFS = '/sys/class/xpon/pon0';
+const PON_DEV = '/sys/class/net/pon0/device';
+const ROGUE_FILE = '/etc/xpon-rogue';
+
+function read_str(path) {
+	return trim(readfile(path) ?? '');
+}
+
+function parse_kv(raw) {
+	let out = {};
+
+	for (let word in split(raw, /\s+/)) {
+		let i = index(word, '=');
+
+		if (i > 0)
+			out[substr(word, 0, i)] = substr(word, i + 1);
+	}
+	return out;
+}
+
+function read_ddm() {
+	let out = parse_kv(read_str(`${PON_DEV}/bosa_ddm`));
+
+	if (length(out)) {
+		delete out.raw;
+		return out;
+	}
+
+	let dir = filter(lsdir(`${PON_DEV}/hwmon`) ?? [], (d) => match(d, /^hwmon[0-9]+$/))[0];
+	if (!dir)
+		return out;
+
+	let val = (attr, scale) => {
+		let v = read_str(`${PON_DEV}/hwmon/${dir}/${attr}`);
+
+		return length(v) ? `${+v * scale}` : null;
+	};
+	let vals = {
+		temp_mc: val('temp1_input', 1),
+		vcc_uv: val('in0_input', 1000),
+		bias_ua: val('curr1_input', 1000),
+		tx_nw: val('power1_input', 1000),
+		rx_nw: val('power2_input', 1000),
+	};
+
+	for (let k, v in vals)
+		if (v != null)
+			out[k] = v;
+	return out;
+}
+
+function read_epon() {
+	let oam = {};
+
+	try {
+		oam = json(readfile('/var/run/epon-oamd.json') ?? '{}') ?? {};
+	} catch (e) {}
+
+	return {
+		mac: parse_kv(read_str(`${PON_DEV}/epon_state`)),
+		onu_mac: read_str(`${PON_DEV}/epon_mac`) || null,
+		allow_tx: read_str(`${PON_DEV}/allow_tx`) == '1',
+		tx_hold: read_str(`${PON_DEV}/tx_hold`) == '1',
+		tx_hold_seconds: +(read_str(`${PON_DEV}/tx_hold_seconds`) || 0),
+		oam,
+	};
+}
+
+const methods = {
+	status: {
+		call: function() {
+			let mode = read_str(`${XPON_SYSFS}/mode_current`) || null;
+			let avail = split(read_str(`${XPON_SYSFS}/mode_available`), /\s+/);
+			let out = {
+				mode,
+				modes_available: filter(avail, (m) => length(m) > 0),
+				registration: read_str(`${XPON_SYSFS}/state`) || null,
+				carrier: read_str(`${XPON_SYSFS}/carrier`) == '1',
+				signal_detect: read_str(`${XPON_SYSFS}/signal_detect`) == '1',
+				ddm: read_ddm(),
+				thresholds: parse_kv(read_str(`${PON_DEV}/bosa_thresholds`)),
+			};
+
+			if (mode == 'epon')
+				out.epon = read_epon();
+			return out;
+		}
+	},
+
+	epon_status: {
+		call: function() {
+			return read_epon();
+		}
+	},
+
+	set_mode: {
+		args: {
+			mode: 'string',
+			apply: false,
+		},
+		call: function(req) {
+			let mode = req.args.mode;
+
+			if (mode != 'gpon' && mode != 'epon')
+				return { error: 'invalid mode' };
+
+			let c = cursor();
+			c.load('xpon');
+			if (!c.get('xpon', 'main'))
+				c.set('xpon', 'main', 'xpon');
+			c.set('xpon', 'main', 'mode', mode);
+			c.commit('xpon');
+
+			if (req.args.apply) {
+				if (writefile(`${XPON_SYSFS}/mode_current`, `${mode}\n`) == null)
+					return { error: 'failed to apply mode to kernel' };
+			}
+
+			return { mode, applied: !!req.args.apply };
+		}
+	},
+
+	epon_tx_release: {
+		call: function() {
+			unlink(ROGUE_FILE);
+			let ok = writefile(`${PON_DEV}/tx_hold`, '0\n') != null;
+
+			return { ok };
+		}
+	}
+};
+
+return { 'xpon.agent': methods };

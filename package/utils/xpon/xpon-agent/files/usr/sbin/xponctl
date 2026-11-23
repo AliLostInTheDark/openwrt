@@ -1,0 +1,42 @@
+#!/usr/bin/ucode
+'use strict';
+
+import * as ubus from 'ubus';
+
+let conn = ubus.connect();
+if (!conn) {
+	warn("xponctl: failed to connect to ubus\n");
+	exit(1);
+}
+
+let cmd = ARGV[0] ?? 'status';
+
+function dump(res) {
+	if (res == null) {
+		warn("xponctl: ubus call failed\n");
+		exit(1);
+	}
+	printf("%.2J\n", res);
+}
+
+if (cmd == 'status') {
+	dump(conn.call('xpon.agent', 'status', {}));
+} else if (cmd == 'epon') {
+	dump(conn.call('xpon.agent', 'epon_status', {}));
+} else if (cmd == 'mode') {
+	let target = ARGV[1];
+	if (!target) {
+		let st = conn.call('xpon.agent', 'status', {});
+		printf("%s\n", st?.mode ?? 'unknown');
+	} else {
+		dump(conn.call('xpon.agent', 'set_mode', {
+			mode: target,
+			apply: ARGV[2] == '--apply',
+		}));
+	}
+} else if (cmd == 'tx-release') {
+	dump(conn.call('xpon.agent', 'epon_tx_release', {}));
+} else {
+	warn("Usage: xponctl [status|epon|mode [gpon|epon [--apply]]|tx-release]\n");
+	exit(2);
+}

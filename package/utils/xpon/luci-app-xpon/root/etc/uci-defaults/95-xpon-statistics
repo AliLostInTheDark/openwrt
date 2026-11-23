@@ -1,0 +1,17 @@
+#!/bin/sh
+[ -f /etc/config/luci_statistics ] || exit 0
+# set up once, so a later upgrade keeps the user's edits
+uci -q get luci_statistics.collectd_xpon >/dev/null && exit 0
+
+uci -q batch <<-EOF
+	set luci_statistics.collectd_rrdtool.RRASingle='0'
+	set luci_statistics.collectd_cpufreq.enable='1'
+	set luci_statistics.collectd_interface.Interfaces='br-lan pon0'
+	set luci_statistics.collectd_thermal.enable='1'
+	set luci_statistics.collectd_sensors.enable='0'
+	set luci_statistics.collectd_xpon='statistics'
+	set luci_statistics.collectd_xpon.enable='1'
+	set luci_statistics.collectd_xpon.Device='pon0'
+	commit luci_statistics
+EOF
+exit 0

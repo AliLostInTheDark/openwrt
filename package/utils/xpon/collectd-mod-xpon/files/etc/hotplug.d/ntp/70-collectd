@@ -1,0 +1,9 @@
+# The router has no RTC, so the clock steps once NTP syncs. collectd would
+# log rrdtool errors for the step; restart it once the time is valid.
+STATEFILE="/var/state/collectd-timevalid"
+
+[ "$ACTION" = "stratum" ] || exit 0
+[ -f "$STATEFILE" ] && exit 0
+
+echo "ntpd says time is valid" >"$STATEFILE"
+/etc/init.d/collectd running && /etc/init.d/collectd restart
