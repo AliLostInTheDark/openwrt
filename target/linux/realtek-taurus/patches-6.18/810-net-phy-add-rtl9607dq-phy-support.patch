@@ -1,0 +1,53 @@
+From d28fd766d0236099464c49e904eda4c4757deed6 Mon Sep 17 00:00:00 2001
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Date: Fri, 13 Nov 2026 12:00:00 +0530
+Subject: [PATCH] net: phy: realtek: add support for RTL9607DQ internal PHYs
+
+The Realtek RTL9607DQ SoC has four internal gigabit PHYs (ID 0x001ccac4)
+behind its network engine. Match the ID exactly, so that the RTL9607C
+internal PHYs (0x001ccac0, 0x001cc981) of the same family are not picked
+up by this entry.
+
+U-Boot leaves the PHYs linked and calibrated, and the SoC's PHY to MAC
+datapath does not recover when autonegotiation is restarted (the vendor
+driver never restarts it either), so config_aneg keeps the boot loader's
+settings. Without soft_reset and config_init the PHY is not reset, and
+its patch and calibration survive.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+ drivers/net/phy/realtek/realtek_main.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/net/phy/realtek/realtek_main.c b/drivers/net/phy/realtek/realtek_main.c
+index c461ccc..8ebfe7a 100644
+--- a/drivers/net/phy/realtek/realtek_main.c
++++ b/drivers/net/phy/realtek/realtek_main.c
+@@ -3811,6 +3811,16 @@ static int rtl826x_set_tunable(struct phy_device *phydev,
+ 	return 0;
+ }
+ 
++static int rtl9607dq_config_aneg(struct phy_device *phydev)
++{
++	/*
++	 * U-Boot leaves the PHY linked and calibrated. Restarting
++	 * autonegotiation bounces the link and the SoC's PHY to MAC datapath
++	 * does not recover from that, so keep the boot loader's settings.
++	 */
++	return 0;
++}
++
+ static struct phy_driver realtek_drvs[] = {
+ 	{
+ 		PHY_ID_MATCH_EXACT(0x00008201),
+@@ -4265,6 +4275,10 @@ static struct phy_driver realtek_drvs[] = {
+ 		.get_wol        = rtl826x_get_wol,
+ 		.get_tunable    = rtl826x_get_tunable,
+ 		.set_tunable    = rtl826x_set_tunable,
++	}, {
++		PHY_ID_MATCH_EXACT(0x001ccac4),
++		.name		= "RTL9607DQ Gigabit Ethernet",
++		.config_aneg	= rtl9607dq_config_aneg,
+ 	},
+ };
+ 

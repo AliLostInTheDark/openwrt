@@ -1,0 +1,78 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] net: ethernet: cortina: add the Realtek RTL9607DQ network engine
+
+Add the Kconfig entries and Makefile lines of the network engine and
+GPON MAC drivers of the Realtek RTL9607DQ (Cortina Access) SoC.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/drivers/net/ethernet/cortina/Kconfig
+===================================================================
+--- linux-6.18.60.orig/drivers/net/ethernet/cortina/Kconfig
++++ linux-6.18.60/drivers/net/ethernet/cortina/Kconfig
+@@ -20,4 +20,46 @@ config GEMINI_ETHERNET
+ 	help
+ 	  This driver supports StorLink SL351x (Gemini) dual Gigabit Ethernet.
+ 
++config CORTINA_NI
++	tristate "Realtek RTL9607DQ network engine support"
++	depends on OF && HAS_IOMEM
++	select PHYLIB
++	help
++	  This driver supports the network engine of the Realtek RTL9607DQ
++	  (Cortina Access) SoC, with its MDIO bus and Gigabit PHYs.
++
++config CORTINA_NI_DSA
++	bool "Expose the LAN ports as DSA user ports"
++	depends on CORTINA_NI && NET_DSA
++	select NET_DSA_TAG_CORTINA
++	help
++	  Register the LAN ports of the network engine as DSA user ports
++	  behind its CPU port instead of a single network device.
++
++config CORTINA_NI_FLOWOFFLOAD
++	bool "Hardware flow offload"
++	depends on CORTINA_NI
++	help
++	  Use the L3 forwarding engine of the network engine as a netfilter
++	  flowtable hardware offload backend.
++
++config CORTINA_GPON
++	tristate "Realtek RTL9607DQ GPON MAC support"
++	depends on OF && HAS_IOMEM
++	depends on XPON_OMCI || !XPON_OMCI
++	select CRC32
++	select GPON_CORE
++	help
++	  This driver supports the GPON MAC of the Realtek RTL9607DQ
++	  (Cortina Access) SoC.
++
++config CORTINA_EPON
++	bool "Realtek RTL9607DQ 1G EPON MAC support"
++	depends on CORTINA_GPON
++	depends on XPON_OAM || !XPON_OAM
++	help
++	  Add IEEE 802.3ah 1G EPON MAC, MPCP, FEC, churning crypto,
++	  Dying Gasp, and OAM support to the Realtek RTL9607DQ PON driver,
++	  selectable at runtime through the xPON subsystem.
++
+ endif # NET_VENDOR_CORTINA
+Index: linux-6.18.60/drivers/net/ethernet/cortina/Makefile
+===================================================================
+--- linux-6.18.60.orig/drivers/net/ethernet/cortina/Makefile
++++ linux-6.18.60/drivers/net/ethernet/cortina/Makefile
+@@ -2,3 +2,14 @@
+ # Makefile for the Cortina Gemini network device drivers.
+ 
+ obj-$(CONFIG_GEMINI_ETHERNET) += gemini.o
++obj-$(CONFIG_CORTINA_NI) += cortina_ni.o
++cortina_ni-y := cortina-ni.o cortina-ni-tx.o cortina-ni-rx.o cortina-ni-ethtool.o
++cortina_ni-$(CONFIG_CORTINA_NI_DSA) += cortina-ni-dsa.o
++cortina_ni-$(CONFIG_CORTINA_NI_FLOWOFFLOAD) += cortina-ppe.o cortina-ppe-debugfs.o
++
++obj-$(CONFIG_CORTINA_GPON) += cortina_gpon.o
++cortina_gpon-y := cortina-gpon.o cortina-gpon-bosa.o cortina-i2c.o
++cortina_gpon-$(CONFIG_XPON_OMCI) += cortina-xpon.o
++cortina_gpon-$(CONFIG_CORTINA_EPON) += cortina-epon.o
++
++ccflags-$(CONFIG_CORTINA_GPON) += -I$(srctree)/drivers/net/gpon

@@ -1,0 +1,26 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] net: dsa: do not link a switch to its own conduit device
+
+When the DSA switch and its conduit are the same device, as on SoCs where
+the network engine is both, device_link_add() refuses to make the device
+a consumer of itself and the core reports an error for every probe. There
+is nothing to order in that case, so skip the link.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+diff --git a/net/dsa/conduit.c b/net/dsa/conduit.c
+--- a/net/dsa/conduit.c
++++ b/net/dsa/conduit.c
+@@ -425,8 +425,10 @@
+ 
+ 	mtu = ETH_DATA_LEN + dsa_tag_protocol_overhead(tag_ops);
+ 
+-	/* The DSA conduit must use SET_NETDEV_DEV for this to work. */
+-	if (!netif_is_lag_master(dev)) {
++	/* The DSA conduit must use SET_NETDEV_DEV for this to work. A switch
++	 * that is its own conduit's parent has nothing to be ordered against.
++	 */
++	if (!netif_is_lag_master(dev) && ds->dev != dev->dev.parent) {
+ 		consumer_link = device_link_add(ds->dev, dev->dev.parent,
+ 						DL_FLAG_AUTOREMOVE_CONSUMER);
+ 		if (!consumer_link)

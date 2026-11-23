@@ -1,0 +1,177 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/realtek,rtl9607dq-ni.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek RTL9607DQ network engine
+
+maintainers:
+  - Ifran Ali <khanu.i.i.k.2000@gmail.com>
+
+description:
+  The network interface (NI) of the Cortina Access / Realtek RTL9607DQ
+  network engine. The NI is both the host Ethernet controller, described
+  by the ethernet child node, and a switch whose ports are the internal
+  GPHYs, an SGMII/HSGMII port and the CPU port.
+
+properties:
+  compatible:
+    const: realtek,rtl9607dq-ni
+
+  reg:
+    items:
+      - description: NI, L2/L3 forwarding engines and queue manager
+      - description: LDMA (TX rings)
+      - description: AXI reorder (RX DMA)
+      - description: MDIO master
+      - description: quad GPHY and SerDes analog
+      - description: GPHY wrapper
+      - description: SGMII/HSGMII PCS of the SerDes port
+      - description: network engine SRAM (deep-queue packet buffers)
+
+  reg-names:
+    items:
+      - const: ni
+      - const: dma
+      - const: reorder
+      - const: mdio
+      - const: gphy
+      - const: gphy-wrap
+      - const: pcs
+      - const: sram
+
+  interrupts:
+    minItems: 8
+    maxItems: 16
+    description:
+      The first eight are the per CPU port RX interrupts; the rest are
+      further network engine interrupts the driver does not use.
+
+  memory-region:
+    items:
+      - description: coherent DMA buffer pool
+      - description: non-cached packet DMA pool
+
+  realtek,glb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      Global configuration registers (syscon) with the network engine block
+      resets and the SerDes mode selection.
+
+  nvmem-cells:
+    maxItems: 1
+    description: MAC address of the host interface.
+
+  nvmem-cell-names:
+    const: mac-address
+
+  mdio:
+    $ref: mdio.yaml#
+    unevaluatedProperties: false
+
+  ethernet:
+    type: object
+    additionalProperties: false
+    description:
+      The host Ethernet controller, which the CPU port of the switch
+      refers to.
+
+  ports:
+    type: object
+    additionalProperties: false
+
+    properties:
+      "#address-cells":
+        const: 1
+
+      "#size-cells":
+        const: 0
+
+    patternProperties:
+      "^port@[0-5]$":
+        $ref: /schemas/net/dsa/dsa-port.yaml#
+        unevaluatedProperties: false
+        description:
+          Switch ports 0 to 3 are the internal GPHYs, port 4 the SerDes
+          port and port 5 the CPU port.
+
+    required:
+      - "#address-cells"
+      - "#size-cells"
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+  - memory-region
+  - realtek,glb
+  - mdio
+  - ethernet
+  - ports
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+
+    ethernet@f4300000 {
+        compatible = "realtek,rtl9607dq-ni";
+        reg = <0xf4300000 0x10000>,
+              <0xf7001000 0x1000>,
+              <0xf432d000 0x20b8>,
+              <0xf4329118 0x48>,
+              <0xf4600000 0x100000>,
+              <0xf4700000 0x100>,
+              <0xf433a000 0x2000>,
+              <0x80000000 0x3c000>;
+        reg-names = "ni", "dma", "reorder", "mdio", "gphy", "gphy-wrap",
+                    "pcs", "sram";
+        interrupts = <GIC_SPI 84 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 85 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 90 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 91 IRQ_TYPE_LEVEL_HIGH>;
+        memory-region = <&ne_cache>, <&ne_noncache>;
+        realtek,glb = <&glb>;
+
+        mdio {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            gphy0: ethernet-phy@1 {
+                reg = <1>;
+            };
+        };
+
+        gmac0: ethernet {
+        };
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                label = "lan1";
+                phy-mode = "internal";
+                phy-handle = <&gphy0>;
+            };
+
+            port@5 {
+                reg = <5>;
+                ethernet = <&gmac0>;
+                phy-mode = "internal";
+
+                fixed-link {
+                    speed = <1000>;
+                    full-duplex;
+                };
+            };
+        };
+    };
