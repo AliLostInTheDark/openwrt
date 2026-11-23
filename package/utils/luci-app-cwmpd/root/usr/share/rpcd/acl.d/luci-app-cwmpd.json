@@ -1,0 +1,21 @@
+{
+	"luci-app-cwmpd": {
+		"description": "Grant access to the TR-069 client configuration, status and session log",
+		"read": {
+			"file": {
+				"/tmp/cwmp": [ "list" ],
+				"/tmp/cwmp/*": [ "read" ]
+			},
+			"ubus": {
+				"cwmp": [ "status" ]
+			},
+			"uci": [ "cwmp" ]
+		},
+		"write": {
+			"ubus": {
+				"cwmp": [ "inform", "bootstrap" ]
+			},
+			"uci": [ "cwmp" ]
+		}
+	}
+}

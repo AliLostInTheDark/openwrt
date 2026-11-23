@@ -1,0 +1,29 @@
+#!/bin/sh
+# Fill the device identity the Inform reports from the board, once: the
+# manufacturer and product class from the board name, the OUI from the LAN
+# MAC address, the serial from the GPON identity when there is one, and the
+# firmware version. Values already set are kept.
+
+. /usr/share/libubox/jshn.sh
+. /etc/openwrt_release
+
+set_default() {
+	[ -n "$(uci -q get cwmp.device."$1")" ] || uci -q set cwmp.device."$1"="$2"
+}
+
+json_init
+json_load_file /etc/board.json 2>/dev/null
+json_select model 2>/dev/null && json_get_var model name && json_select ..
+mac="$(cat /sys/class/net/br-lan/address 2>/dev/null)"
+serial="$(uci -q get omci.main.serial)"
+
+[ -n "$model" ] && {
+	set_default manufacturer "${model%% *}"
+	set_default product_class "${model#* }"
+}
+[ -n "$mac" ] && set_default oui "$(echo "$mac" | tr -d ':' | cut -c1-6 | tr a-f A-F)"
+set_default serial "${serial:-$(echo "$mac" | tr -d ':' | tr a-f A-F)}"
+set_default software_version "$DISTRIB_RELEASE $DISTRIB_REVISION"
+
+uci -q commit cwmp
+exit 0

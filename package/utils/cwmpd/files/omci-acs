@@ -1,0 +1,59 @@
+#!/usr/bin/ucode -S
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Print the ACS the OLT provisioned over OMCI, one line each: URL, username,
+ * password. G.988 9.12.15: the TR-069 management server (class 340), when
+ * unlocked, points at a network address (137), which names a large string
+ * (157) holding the URL and an authentication security method (148) holding
+ * the credentials. Prints nothing when the OLT provisioned none.
+ */
+
+import { connect } from 'ubus';
+
+const NULL_POINTER = 0xffff;
+
+let bus = connect();
+let mib = bus?.call('omci.agent', 'mib_list', {})?.objects ?? [];
+let by = {};
+
+for (let o in mib) {
+	let b = [];
+
+	for (let i = 0; i + 1 < length(o.data ?? ''); i += 2)
+		push(b, hex(substr(o.data, i, 2)));
+	by[`${o.class_id}/${o.entity_id}`] = b;
+}
+
+function obj(class_id, id) {
+	return id == NULL_POINTER ? null : by[`${class_id}/${id}`];
+}
+
+function u16(b, at) { return ((b[at] ?? 0) << 8) | (b[at + 1] ?? 0); }
+
+function text(b, at, len) {
+	let s = '';
+
+	for (let i = at; i < at + len && b[i]; i++)
+		if (b[i] >= 0x20 && b[i] < 0x7f)
+			s += chr(b[i]);
+	return s;
+}
+
+for (let key, b in by) {
+	if (!match(key, /^340\//) || b[0] != 0)
+		continue;
+	let address = obj(137, u16(b, 1));
+	let url = address ? obj(157, u16(address, 2)) : null;
+
+	if (!url)
+		continue;
+	let s = '';
+	for (let i = 0; i < min(url[0] ?? 0, 15); i++)
+		s += text(url, 1 + i * 25, 25);
+
+	let auth = obj(148, u16(address, 0));
+	print(s, '\n');
+	print(auth ? text(auth, 1, 25) + text(auth, 76, 14) : '', '\n');
+	print(auth ? text(auth, 26, 25) : '', '\n');
+	break;
+}
