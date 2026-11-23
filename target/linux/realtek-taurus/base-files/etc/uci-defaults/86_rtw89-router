@@ -1,0 +1,6 @@
+#!/bin/sh
+grep -q 'disable_txpwr_lmt=1' /etc/modules.conf 2>/dev/null || cat << 'EOF' >> /etc/modules.conf
+options rtw89_core disable_ps_mode=1 disable_txpwr_lmt=1
+options rtw89_pci disable_clkreq=1 disable_aspm_l1=1 disable_aspm_l1ss=1
+EOF
+exit 0

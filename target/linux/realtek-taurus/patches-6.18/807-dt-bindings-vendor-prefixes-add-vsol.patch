@@ -1,0 +1,21 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] dt-bindings: vendor-prefixes: add VSOL
+
+Guangzhou V-Solution Telecommunication Technology Co., Ltd. (VSOL) makes
+PON ONUs and wireless routers.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/Documentation/devicetree/bindings/vendor-prefixes.yaml
+===================================================================
+--- linux-6.18.60.orig/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ linux-6.18.60/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -1757,6 +1757,8 @@
+     description: Vision Optical Technology Co., Ltd.
+   "^vscom,.*":
+     description: VS Visions Systems GmbH
++  "^vsol,.*":
++    description: Guangzhou V-Solution Telecommunication Technology Co., Ltd.
+   "^vxt,.*":
+     description: VXT Ltd
+   "^wacom,.*":

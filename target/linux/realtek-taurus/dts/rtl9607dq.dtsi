@@ -1,0 +1,581 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/thermal/thermal.h>
+
+/ {
+	compatible = "realtek,rtl9607dq", "realtek,taurus";
+	interrupt-parent = <&gic>;
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* voice DSP firmware and its IPC window */
+		voip@2000000 {
+			reg = <0x0 0x02000000 0x0 0x300000>;
+			no-map;
+		};
+
+		voip-ipc@2300000 {
+			reg = <0x0 0x02300000 0x0 0x100000>;
+			no-map;
+		};
+
+		/* network engine DMA pools */
+		ne_noncache: ne-noncache@9000000 {
+			reg = <0x0 0x09000000 0x0 0x1a50000>;
+			no-map;
+		};
+
+		ne_cache: ne-cache@bc48000 {
+			reg = <0x0 0x0bc48000 0x0 0x10000>;
+			no-map;
+		};
+
+		/* TF-A */
+		tz-smc@eeff000 {
+			reg = <0x0 0x0eeff000 0x0 0x1000>;
+			no-map;
+		};
+
+		tz@ffc0000 {
+			reg = <0x0 0x0ffc0000 0x0 0x40000>;
+			no-map;
+		};
+
+		/* 1 MiB reserved for ramoops/pstore crash logs */
+		ramoops@10000000 {
+			compatible = "ramoops";
+			reg = <0x0 0x10000000 0x0 0x100000>;
+			no-map;
+			record-size = <0x20000>;
+			console-size = <0x40000>;
+			pmsg-size = <0x10000>;
+			ecc-size = <16>;
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+	};
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x0 0x000>;
+			enable-method = "psci";
+			clocks = <&glb>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu_opp_table>;
+			#cooling-cells = <2>;
+		};
+
+		cpu1: cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x0 0x100>;
+			enable-method = "psci";
+			clocks = <&glb>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu_opp_table>;
+			#cooling-cells = <2>;
+		};
+
+		cpu2: cpu@200 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x0 0x200>;
+			enable-method = "psci";
+			clocks = <&glb>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu_opp_table>;
+			#cooling-cells = <2>;
+		};
+
+		cpu3: cpu@300 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x0 0x300>;
+			enable-method = "psci";
+			clocks = <&glb>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu_opp_table>;
+			#cooling-cells = <2>;
+		};
+
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&cpu0>;
+				};
+
+				core1 {
+					cpu = <&cpu1>;
+				};
+
+				core2 {
+					cpu = <&cpu2>;
+				};
+
+				core3 {
+					cpu = <&cpu3>;
+				};
+			};
+		};
+	};
+
+	cpu_opp_table: opp-table-cpu {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-625000000 {
+			opp-hz = /bits/ 64 <625000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-800000000 {
+			opp-hz = /bits/ 64 <800000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-900000000 {
+			opp-hz = /bits/ 64 <900000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-1000000000 {
+			opp-hz = /bits/ 64 <1000000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-1100000000 {
+			opp-hz = /bits/ 64 <1100000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+
+		opp-1200000000 {
+			opp-hz = /bits/ 64 <1200000000>;
+			opp-microvolt = <1000000>;
+			clock-latency-ns = <250000>;
+		};
+	};
+
+	pmu {
+		compatible = "arm,cortex-a55-pmu";
+		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW>;
+		clock-frequency = <25000000>;
+	};
+
+	/* 25 MHz crystal oscillator feeding CPLL */
+	refclk: clock-25000000 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <25000000>;
+	};
+
+	/* APB peripheral clock (stock g3_apb_pclk) */
+	pclk: clock-125000000 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <125000000>;
+	};
+
+	thermal-zones {
+		cpu-thermal {
+			polling-delay-passive = <500>;
+			polling-delay = <3000>;
+			thermal-sensors = <&thermal>;
+
+			trips {
+				cpu_passive: cpu-passive {
+					temperature = <85000>;
+					hysteresis = <5000>;
+					type = "passive";
+				};
+
+				cpu-crit {
+					temperature = <115000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu_passive>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		usb: usb@f0200000 {
+			compatible = "snps,dwc3";
+			reg = <0x0 0xf0200000 0x0 0x80000>;
+			interrupts = <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usb_phy 0>, <&usb_phy 1>;
+			phy-names = "usb2-phy", "usb3-phy";
+			dr_mode = "host";
+			snps,parkmode-disable-ss-quirk;
+			status = "disabled";
+		};
+
+		/* probed first so the 2.4 GHz radio is radio0 */
+		pcie1: pcie@f4326000 {
+			compatible = "realtek,rtl9607dq-pcie";
+			reg = <0x0 0xf4326000 0x0 0x400>,
+			      <0x0 0xb0000000 0x0 0x1000>,
+			      <0x0 0xb0001000 0x0 0x2000>,
+			      <0x0 0xb0300000 0x0 0x100000>,
+			      <0x0 0xf4335000 0x0 0x2000>;
+			reg-names = "glbl_regs", "rc_dbi", "config", "iatu", "serdes_phy";
+			realtek,glb = <&glb>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			device_type = "pci";
+			bus-range = <0x00 0xff>;
+			ranges = <0x81000000 0x0 0x00000000 0x0 0xb0003000 0x0 0x00010000>,
+				 <0x82000000 0x0 0xb0400000 0x0 0xb0400000 0x0 0x0fc00000>;
+			linux,pci-domain = <1>;
+			num-viewport = <1>;
+			num-lanes = <1>;
+			interrupts = <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>;
+			#interrupt-cells = <1>;
+			interrupt-map-mask = <0 0 0 7>;
+			interrupt-map = <0 0 0 1 &pcie1_intc 0>,
+					<0 0 0 2 &pcie1_intc 1>,
+					<0 0 0 3 &pcie1_intc 2>,
+					<0 0 0 4 &pcie1_intc 3>;
+			realtek,serdes-cfg = <
+				0x004 0xa855  0x008 0x60c6  0x018 0x001f  0x020 0x3591
+				0x028 0xf670  0x02c 0xa90d  0x034 0xf71a  0x038 0x1000
+				0x074 0xda1f  0x078 0xe0e2  0x080 0xd477  0x088 0x0023
+				0x08c 0x0b66  0x090 0x4f30  0x0a0 0xf802  0x0c0 0x0055
+				0x0c8 0xf0f3  0x024 0x520c  0x104 0xa84a  0x108 0x60c6
+				0x118 0x001f  0x120 0x3591  0x128 0xf670  0x12c 0xa90d
+				0x134 0xf71a  0x138 0x1000  0x174 0xda1f  0x178 0xe0e2
+				0x180 0xd479  0x184 0x55aa  0x188 0x0023  0x18c 0x0b66
+				0x190 0x4f0c  0x1a0 0xf802  0x1bc 0x3900  0x1c0 0x004a
+				0x1c8 0xf0f3  0x124 0x520c>;
+			status = "disabled";
+
+			pcie1_intc: interrupt-controller {
+				interrupt-controller;
+				#address-cells = <0>;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		pcie0: pcie@f4325000 {
+			compatible = "realtek,rtl9607dq-pcie";
+			reg = <0x0 0xf4325000 0x0 0x400>,
+			      <0x0 0xa0000000 0x0 0x1000>,
+			      <0x0 0xa0001000 0x0 0x2000>,
+			      <0x0 0xa0300000 0x0 0x100000>,
+			      <0x0 0xf4333000 0x0 0x2000>;
+			reg-names = "glbl_regs", "rc_dbi", "config", "iatu", "serdes_phy";
+			realtek,glb = <&glb>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			device_type = "pci";
+			bus-range = <0x00 0xff>;
+			ranges = <0x81000000 0x0 0x00000000 0x0 0xa0003000 0x0 0x00010000>,
+				 <0x82000000 0x0 0xa0400000 0x0 0xa0400000 0x0 0x0fc00000>;
+			linux,pci-domain = <0>;
+			num-viewport = <1>;
+			num-lanes = <1>;
+			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>;
+			#interrupt-cells = <1>;
+			interrupt-map-mask = <0 0 0 7>;
+			interrupt-map = <0 0 0 1 &pcie0_intc 0>,
+					<0 0 0 2 &pcie0_intc 1>,
+					<0 0 0 3 &pcie0_intc 2>,
+					<0 0 0 4 &pcie0_intc 3>;
+			realtek,serdes-cfg = <
+				0x004 0xa855  0x008 0x60c6  0x018 0x001f  0x020 0x3591
+				0x028 0xf670  0x02c 0xa90d  0x034 0xf71a  0x038 0x1000
+				0x074 0xda1f  0x078 0xe0e2  0x080 0xd477  0x088 0x0023
+				0x08c 0x0b66  0x090 0x4f30  0x0a0 0xf802  0x0c0 0x0055
+				0x0c8 0xf0f3  0x024 0x520c  0x104 0xa84a  0x108 0x60c6
+				0x118 0x001f  0x120 0x3591  0x128 0xf670  0x12c 0xa90d
+				0x134 0xf71a  0x138 0x1000  0x174 0xda1f  0x178 0xe0e2
+				0x180 0xd479  0x184 0x55aa  0x188 0x0023  0x18c 0x0b66
+				0x190 0x4f0c  0x1a0 0xf802  0x1bc 0x3900  0x1c0 0x004a
+				0x1c8 0xf0f3  0x124 0x520c>;
+			status = "disabled";
+
+			pcie0_intc: interrupt-controller {
+				interrupt-controller;
+				#address-cells = <0>;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		watchdog@f432901c {
+			compatible = "realtek,rtl9607dq-wdt";
+			reg = <0x0 0xf432901c 0x0 0x30>;
+			clocks = <&pclk>;
+		};
+
+		per_spi: spi@f43290d8 {
+			compatible = "realtek,rtl9607dq-per-spi";
+			reg = <0x0 0xf43290d8 0x0 0x40>;
+			clocks = <&pclk>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		uart0: serial@f43291b0 {
+			compatible = "cortina,serial";
+			reg = <0x0 0xf43291b0 0x0 0x30>;
+			interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&pclk>;
+			clock-frequency = <125000000>;
+			status = "disabled";
+		};
+
+		usb_phy: usb-phy@f432b000 {
+			compatible = "realtek,rtl9607dq-usb-phy";
+			reg = <0x0 0xf432b000 0x0 0x60>,
+			      <0x0 0xf4337000 0x0 0x1000>;
+			reg-names = "usbcfg", "serdes";
+			realtek,glb = <&glb>;
+			#phy-cells = <1>;
+			status = "disabled";
+		};
+
+		ethernet: ethernet@4f4300000 {
+			compatible = "realtek,rtl9607dq-ni";
+			reg = <0x4 0xf4300000 0x0 0x10000>,
+			      <0x4 0xf7001000 0x0 0x1000>,
+			      <0x4 0xf432d000 0x0 0x20b8>,
+			      <0x4 0xf4329118 0x0 0x48>,
+			      <0x4 0xf4600000 0x0 0x100000>,
+			      <0x4 0xf4700000 0x0 0x100>,
+			      <0x4 0xf433a000 0x0 0x2000>,
+			      <0x0 0x80000000 0x0 0x3c000>;
+			reg-names = "ni", "dma", "reorder", "mdio", "gphy",
+				    "gphy-wrap", "pcs", "sram";
+			interrupts = <GIC_SPI 84 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 85 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 90 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 91 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 75 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 76 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 77 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 71 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 73 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>;
+			memory-region = <&ne_cache>, <&ne_noncache>;
+			realtek,glb = <&glb>;
+			status = "disabled";
+
+			mdio: mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				gphy0: ethernet-phy@1 {
+					reg = <1>;
+				};
+
+				gphy1: ethernet-phy@2 {
+					reg = <2>;
+				};
+
+				gphy2: ethernet-phy@3 {
+					reg = <3>;
+				};
+
+				gphy3: ethernet-phy@4 {
+					reg = <4>;
+				};
+			};
+
+			gmac0: ethernet {
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port0: port@0 {
+					reg = <0>;
+					phy-mode = "internal";
+					phy-handle = <&gphy0>;
+					status = "disabled";
+				};
+
+				port1: port@1 {
+					reg = <1>;
+					phy-mode = "internal";
+					phy-handle = <&gphy1>;
+					status = "disabled";
+				};
+
+				port2: port@2 {
+					reg = <2>;
+					phy-mode = "internal";
+					phy-handle = <&gphy2>;
+					status = "disabled";
+				};
+
+				port3: port@3 {
+					reg = <3>;
+					phy-mode = "internal";
+					phy-handle = <&gphy3>;
+					status = "disabled";
+				};
+
+				port4: port@4 {
+					reg = <4>;
+					status = "disabled";
+				};
+
+				port@5 {
+					reg = <5>;
+					ethernet = <&gmac0>;
+					phy-mode = "internal";
+
+					fixed-link {
+						speed = <1000>;
+						full-duplex;
+					};
+				};
+			};
+		};
+
+		glb: syscon@4f4320000 {
+			compatible = "realtek,rtl9607dq-glb", "syscon";
+			reg = <0x4 0xf4320000 0x0 0x400>;
+			clocks = <&refclk>;
+			#clock-cells = <0>;
+		};
+
+		thermal: thermal-sensor@4f4320264 {
+			compatible = "realtek,rtl9607dq-thermal";
+			reg = <0x4 0xf4320264 0x0 0x10>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		qspi: spi@4f4324000 {
+			compatible = "cortina,ca-qspi";
+			reg = <0x4 0xf4324000 0x0 0x50>;
+			reg-names = "qspi-base";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		gpio0: gpio@4f43292c0 {
+			compatible = "cortina,ca77xx-gpio";
+			reg = <0x4 0xf43292c0 0x0 0x24>,
+			      <0x4 0xf4320100 0x0 0x4>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <16>;
+		};
+
+		gpio3: gpio@4f432932c {
+			compatible = "cortina,ca77xx-gpio";
+			reg = <0x4 0xf432932c 0x0 0x24>,
+			      <0x4 0xf432010c 0x0 0x4>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <25>;
+		};
+
+		pon: pon@4f5500000 {
+			compatible = "realtek,rtl9607dq-pon";
+			reg = <0x4 0xf5500000 0x0 0xc000>,
+			      <0x0 0xf4329440 0x0 0x10>,
+			      <0x0 0xf4329004 0x0 0x8>;
+			reg-names = "pon", "dying-gasp", "per-ictl";
+			interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "pon", "dying-gasp";
+			status = "disabled";
+		};
+
+		ssp: pcm@4f7001b80 {
+			compatible = "realtek,rtl9607dq-ssp";
+			reg = <0x4 0xf7001b80 0x0 0x80>,
+			      <0x4 0xf7001064 0x0 0x54>,
+			      <0x4 0xf7001a80 0x0 0x80>,
+			      <0x4 0xf7001e08 0x0 0x8>;
+			reg-names = "ssp", "dma", "queue", "irq";
+			interrupts = <GIC_SPI 17 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "tx", "rx";
+			#sound-dai-cells = <0>;
+			status = "disabled";
+		};
+
+		gic: interrupt-controller@4f8000000 {
+			compatible = "arm,gic-v3";
+			reg = <0x4 0xf8000000 0x0 0x10000>,	/* GICD */
+			      <0x4 0xf8040000 0x0 0x80000>;	/* GICR */
+			interrupt-controller;
+			#interrupt-cells = <3>;
+			#redistributor-regions = <1>;
+			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
+		};
+	};
+};

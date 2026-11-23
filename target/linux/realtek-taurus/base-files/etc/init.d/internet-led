@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+# The Internet LED follows IPv4 reachability (/usr/share/internet-led/internet-led.uc).
+
+START=99
+USE_PROCD=1
+
+LED=green:wan-online
+
+start_service() {
+	[ -d "/sys/class/leds/$LED" ] || return 0
+	[ -x /usr/bin/ucode ] || return 0
+
+	procd_open_instance
+	procd_set_param command /usr/bin/ucode /usr/share/internet-led/internet-led.uc "$LED"
+	procd_set_param respawn
+	procd_close_instance
+}
+
+stop_service() {
+	echo none > "/sys/class/leds/$LED/trigger"
+	echo 0 > "/sys/class/leds/$LED/brightness"
+}

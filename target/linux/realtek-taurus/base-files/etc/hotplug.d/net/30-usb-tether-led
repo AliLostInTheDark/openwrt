@@ -1,0 +1,43 @@
+#!/bin/sh
+# While a phone shares its connection over USB, the USB LED follows that
+# network interface: lit with the link, blinking with the traffic. When it
+# goes away the LED returns to its usbport trigger from /etc/config/system.
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+vsol,hg325ax30)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+led=/sys/class/leds/green:usb
+[ -d "$led" ] || exit 0
+
+case "$ACTION" in
+add)
+	case "$(readlink -f "/sys/class/net/$INTERFACE/device")" in
+	*/usb[0-9]*)
+		;;
+	*)
+		exit 0
+		;;
+	esac
+
+	echo netdev > "$led/trigger"
+	echo "$INTERFACE" > "$led/device_name"
+	echo 1 > "$led/link"
+	echo 1 > "$led/tx"
+	echo 1 > "$led/rx"
+	;;
+remove)
+	[ "$(cat "$led/device_name" 2>/dev/null)" = "$INTERFACE" ] || exit 0
+
+	echo usbport > "$led/trigger" 2>/dev/null || exit 0
+	for port in $(uci -q get system.led_usb.port); do
+		echo 1 > "$led/ports/$port" 2>/dev/null
+	done
+	;;
+esac

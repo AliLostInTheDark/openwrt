@@ -1,0 +1,438 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+/dts-v1/;
+
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/thermal/thermal.h>
+
+#include "rtl9607dq.dtsi"
+
+/ {
+	model = "VSOL HG325AX30";
+	compatible = "vsol,hg325ax30", "realtek,rtl9607dq", "realtek,taurus";
+
+	thermal-zones {
+		/* passive: the vendor driver's TX throttle point, thermal code 0x33 */
+		wifi5g-thermal {
+			polling-delay-passive = <2000>;
+			polling-delay = <10000>;
+			thermal-sensors = <&wifi5g>;
+
+			trips {
+				wifi5g_passive: wifi5g-passive {
+					temperature = <93000>;
+					hysteresis = <7500>;
+					type = "passive";
+				};
+
+				wifi5g-crit {
+					temperature = <120000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&wifi5g_passive>;
+					cooling-device = <&wifi5g THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		wifi2g-thermal {
+			polling-delay-passive = <2000>;
+			polling-delay = <10000>;
+			thermal-sensors = <&wifi2g>;
+
+			trips {
+				wifi2g_passive: wifi2g-passive {
+					temperature = <107000>;
+					hysteresis = <5000>;
+					type = "passive";
+				};
+
+				wifi2g-crit {
+					temperature = <120000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&wifi2g_passive>;
+					cooling-device = <&wifi2g THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+	};
+
+	aliases {
+		serial0 = &uart0;
+		led-failsafe = &led_los;
+		led-upgrade = &led_los;
+		label-mac-device = &ethernet;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		/*
+		 * The vendor U-Boot passes the stock root=31:8 (gluebi); the
+		 * rootfs is the "rootfs" UBI volume, found by the ubiblock code.
+		 */
+		bootargs-override = "earlycon console=ttyS0,115200 ubi.mtd=ubi_device";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x0 0x0 0x20000000>;
+	};
+
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <20>;
+
+		button-wps {
+			label = "wps";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+		};
+
+		button-restart {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&gpio3 3 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-0 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <3>;
+			gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+		};
+
+		led-1 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WAN_ONLINE;
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		};
+
+		led-2 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <2>;
+			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+		};
+
+		led-3 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <1>;
+			gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+		};
+
+		led-4 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WPS;
+			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+		};
+
+		led-6 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_USB;
+			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+		};
+
+		led-7 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = LED_FUNCTION_WAN;
+			gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "gpon-link";
+		};
+
+		led_los: led-8 {
+			color = <LED_COLOR_ID_RED>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+			linux,default-trigger = "gpon-los";
+		};
+
+		led-9 {
+			color = <LED_COLOR_ID_GREEN>;
+			function = "tel";
+			gpios = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	reg_cpu: regulator-cpu {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd_cpu";
+		regulator-min-microvolt = <1000000>;
+		regulator-max-microvolt = <1000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	reg_usb_vbus: regulator-usb-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb_vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpios = <&gpio3 4 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	gpio-export {
+		compatible = "gpio-export";
+
+		slic-reset {
+			gpio-export,name = "slic_reset";
+			gpio-export,output = <1>;
+			gpios = <&gpio3 2 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	slic_pcm: slic-pcm {
+		compatible = "linux,bt-sco";
+		#sound-dai-cells = <0>;
+	};
+
+	sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "HG325AX30-FXS";
+		simple-audio-card,format = "dsp_a";
+		simple-audio-card,bitclock-master = <&cpu_dai>;
+		simple-audio-card,frame-master = <&cpu_dai>;
+
+		cpu_dai: simple-audio-card,cpu {
+			sound-dai = <&ssp>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&slic_pcm>;
+		};
+	};
+};
+
+&cpu0 {
+	cpu-supply = <&reg_cpu>;
+};
+
+&cpu1 {
+	cpu-supply = <&reg_cpu>;
+};
+
+&cpu2 {
+	cpu-supply = <&reg_cpu>;
+};
+
+&cpu3 {
+	cpu-supply = <&reg_cpu>;
+};
+
+&ethernet {
+	nvmem-cells = <&macaddr_lan 0>;
+	nvmem-cell-names = "mac-address";
+	status = "okay";
+};
+
+&mdio {
+	rtl8221b: ethernet-phy@7 {
+		reg = <7>;
+
+		leds {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* the one LED of the lan4 jack */
+			led@0 {
+				reg = <0>;
+				color = <LED_COLOR_ID_GREEN>;
+				function = LED_FUNCTION_LAN;
+				function-enumerator = <4>;
+				default-state = "keep";
+			};
+		};
+	};
+};
+
+&port0 {
+	label = "lan1";
+	status = "okay";
+};
+
+&port1 {
+	label = "lan2";
+	status = "okay";
+};
+
+&port2 {
+	label = "lan3";
+	status = "okay";
+};
+
+&port4 {
+	label = "lan4";
+	phy-mode = "2500base-x";
+	phy-handle = <&rtl8221b>;
+	status = "okay";
+};
+
+&gpio3 {
+	gpio-line-names = "", "", "slic_reset", "", "", "", "", "", "",
+			  "", "", "", "", "", "", "", "", "", "",
+			  "", "", "", "", "", "";
+};
+
+&per_spi {
+	status = "okay";
+
+	slic@0 {
+		compatible = "maxlinear,pef32001";
+		reg = <0>;
+		spi-max-frequency = <2500000>;
+		spi-cpol;
+		spi-cpha;
+	};
+};
+
+&pon {
+	nvmem-cells = <&macaddr_lan 9>, <&bosa_cal>;
+	nvmem-cell-names = "mac-address", "calibration";
+	tx-disable-gpios = <&gpio3 1 GPIO_ACTIVE_HIGH>;
+	tx-power-gpios = <&gpio3 0 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&pcie0 {
+	reset-gpios = <&gpio3 5 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		device_type = "pci";
+		ranges;
+
+		wifi5g: wifi@0,0 {
+			compatible = "pci10ec,c852";
+			reg = <0x0000 0 0 0 0>;
+			#cooling-cells = <2>;
+			#thermal-sensor-cells = <0>;
+			nvmem-cells = <&macaddr_lan 5>;
+			nvmem-cell-names = "mac-address";
+			ieee80211-freq-limit = <5170000 5835000>;
+			realtek,rfe-type = <54>;
+			realtek,xtal-cap = <63>;
+		};
+	};
+};
+
+&pcie1 {
+	reset-gpios = <&gpio3 6 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		device_type = "pci";
+		ranges;
+
+		wifi2g: wifi@0,0 {
+			compatible = "pci10ec,0192";
+			reg = <0x0000 0 0 0 0>;
+			#cooling-cells = <2>;
+			#thermal-sensor-cells = <0>;
+			nvmem-cells = <&macaddr_lan 1>;
+			nvmem-cell-names = "mac-address";
+			realtek,rfe-type = <54>;
+			realtek,xtal-cap = <63>;
+		};
+	};
+};
+
+&qspi {
+	status = "okay";
+
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <2>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "boot";
+				reg = <0x0 0x200000>;
+				read-only;
+			};
+
+			partition@280000 {
+				label = "env";
+				reg = <0x280000 0x40000>;
+			};
+
+			partition@2c0000 {
+				label = "env2";
+				reg = <0x2c0000 0x40000>;
+			};
+
+			partition@300000 {
+				label = "static_conf";
+				reg = <0x300000 0x40000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					macaddr_lan: macaddr@8 {
+						compatible = "mac-base";
+						reg = <0x8 0x6>;
+						#nvmem-cell-cells = <1>;
+					};
+
+					bosa_cal: calibration@100 {
+						reg = <0x100 0x400>;
+					};
+				};
+			};
+
+			partition@340000 {
+				label = "ubi_device";
+				reg = <0x340000 0x7c00000>;
+			};
+		};
+	};
+};
+
+&ssp {
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&usb {
+	status = "okay";
+};
+
+&usb_phy {
+	vbus-supply = <&reg_usb_vbus>;
+	status = "okay";
+};

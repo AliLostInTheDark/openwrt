@@ -1,0 +1,41 @@
+#!/bin/sh /etc/rc.common
+# Blink the USB LED during USB disk transfers (/usr/share/usb-led/storage-activity.uc).
+# Started from block hotplug, so nothing polls while no USB disk is attached.
+
+START=99
+USE_PROCD=1
+
+usb_disk_present() {
+	local d
+
+	for d in /sys/block/*; do
+		case "$(readlink "$d")" in
+		*/usb[0-9]*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+start_service() {
+	[ "$(uci -q get system.led_usb.trigger)" = usbport ] || return 0
+	[ -x /usr/bin/ucode ] || return 0
+	usb_disk_present || return 0
+
+	procd_open_instance
+	procd_set_param command /usr/bin/ucode /usr/share/usb-led/storage-activity.uc
+	procd_set_param respawn
+	procd_close_instance
+}
+
+# A stop in the middle of a blink leaves the LED on the none trigger.
+service_stopped() {
+	local led="$(uci -q get system.led_usb.sysfs)"
+
+	[ -n "$led" ] || return 0
+	grep -q '\[none\]' "/sys/class/leds/$led/trigger" 2>/dev/null &&
+		/etc/init.d/led restart
+}
+
+service_triggers() {
+	procd_add_reload_trigger system
+}

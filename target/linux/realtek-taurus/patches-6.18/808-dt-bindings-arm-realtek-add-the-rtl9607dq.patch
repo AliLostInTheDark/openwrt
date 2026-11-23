@@ -1,0 +1,26 @@
+From: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+Subject: [PATCH] dt-bindings: arm: realtek: add the RTL9607DQ and the VSOL HG325AX30
+
+Document the Realtek RTL9607DQ ("Taurus") PON SoC and the VSOL HG325AX30
+GPON ONU built on it.
+
+Signed-off-by: Ifran Ali <khanu.i.i.k.2000@gmail.com>
+---
+Index: linux-6.18.60/Documentation/devicetree/bindings/arm/realtek.yaml
+===================================================================
+--- linux-6.18.60.orig/Documentation/devicetree/bindings/arm/realtek.yaml
++++ linux-6.18.60/Documentation/devicetree/bindings/arm/realtek.yaml
+@@ -55,6 +55,13 @@
+               - realtek,mjolnir # Realtek Mjolnir EVB
+           - const: realtek,rtd1619
+ 
++      # RTL9607DQ SoC based boards
++      - items:
++          - enum:
++              - vsol,hg325ax30 # VSOL HG325AX30
++          - const: realtek,rtl9607dq
++          - const: realtek,taurus
++
+ additionalProperties: true
+ 
+ ...

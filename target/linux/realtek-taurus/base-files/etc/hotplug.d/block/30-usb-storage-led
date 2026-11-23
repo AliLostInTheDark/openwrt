@@ -1,0 +1,10 @@
+#!/bin/sh
+# Run the USB storage activity LED only while a USB disk is attached.
+
+[ "$DEVTYPE" = disk ] || exit 0
+
+case "$ACTION" in
+add|remove)
+	/etc/init.d/usb-storage-led enabled && /etc/init.d/usb-storage-led restart
+	;;
+esac
