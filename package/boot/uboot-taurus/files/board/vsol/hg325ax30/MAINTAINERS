@@ -1,0 +1,7 @@
+VSOL HG325AX30
+M:	Ifran Ali <khanu.i.i.k.2000@gmail.com>
+S:	Maintained
+F:	arch/arm/dts/rtl9607dq-vsol-hg325ax30.dts
+F:	board/vsol/hg325ax30/
+F:	configs/vsol_hg325ax30_defconfig
+F:	include/configs/hg325ax30.h

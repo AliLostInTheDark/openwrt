@@ -1,0 +1,23 @@
+if ARCH_CORTINA
+
+choice
+	prompt "Cortina Access board select"
+	default TARGET_VSOL_HG325AX30
+
+config TARGET_VSOL_HG325AX30
+	bool "VSOL HG325AX30 (Realtek RTL9607DQ)"
+	select ARM64
+	select BOARD_LATE_INIT
+	help
+	  Realtek RTL9607DQ "Taurus" GPON router, started by the vendor
+	  U-Boot (chainload) or by BL31 as BL33. SoC, DRAM and clock set-up
+	  is done by the earlier boot stages.
+
+endchoice
+
+config SYS_SOC
+	default "cortina"
+
+source "board/vsol/hg325ax30/Kconfig"
+
+endif

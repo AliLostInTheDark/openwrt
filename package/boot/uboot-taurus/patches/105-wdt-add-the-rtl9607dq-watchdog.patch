@@ -1,0 +1,27 @@
+diff --git a/drivers/watchdog/Kconfig b/drivers/watchdog/Kconfig
+index 3c56c541..1b9765a0 100644
+--- a/drivers/watchdog/Kconfig
++++ b/drivers/watchdog/Kconfig
+@@ -91,6 +91,13 @@ config WDT
+ 	  What exactly happens when the timer expires is up to a particular
+ 	  device/driver.
+ 
++config WDT_RTL9607DQ
++	bool "Realtek RTL9607DQ watchdog support"
++	depends on WDT
++	help
++	  Select this to enable the watchdog of the Realtek RTL9607DQ
++	  (Taurus) SoC.
++
+ config WDT_APPLE
+ 	bool "Apple watchdog timer support"
+ 	depends on WDT
+diff --git a/drivers/watchdog/Makefile b/drivers/watchdog/Makefile
+index 84faefdb..a1f944cb 100644
+--- a/drivers/watchdog/Makefile
++++ b/drivers/watchdog/Makefile
+@@ -58,3 +58,4 @@ obj-$(CONFIG_WDT_TEGRA) += tegra_wdt.o
+ obj-$(CONFIG_WDT_XILINX) += xilinx_wwdt.o
+ obj-$(CONFIG_WDT_ADI) += adi_wdt.o
+ obj-$(CONFIG_WDT_QCOM) += qcom-wdt.o
++obj-$(CONFIG_WDT_RTL9607DQ) += rtl9607dq_wdt.o

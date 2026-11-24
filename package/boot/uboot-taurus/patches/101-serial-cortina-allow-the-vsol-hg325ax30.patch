@@ -1,0 +1,13 @@
+diff --git a/drivers/serial/Kconfig b/drivers/serial/Kconfig
+index ffc58d66..846f378a 100644
+--- a/drivers/serial/Kconfig
++++ b/drivers/serial/Kconfig
+@@ -741,7 +741,7 @@ config COREBOOT_SERIAL_FROM_DBG2
+ 
+ config CORTINA_UART
+ 	bool "Cortina UART support"
+-	depends on DM_SERIAL && TARGET_PRESIDIO_ASIC
++	depends on DM_SERIAL && (TARGET_PRESIDIO_ASIC || ARCH_CORTINA)
+ 	help
+ 	  Select this to enable UART support for Cortina-Access UART devices
+ 	  found on CAxxxx SoCs.

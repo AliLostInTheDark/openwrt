@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Realtek RTL9607DQ ("Taurus") SoC, the part of the U-Boot control device
+ * tree that is the same on every board.
+ *
+ * A board file includes this and adds:
+ *  - model and compatible, memory, the console alias and stdout-path
+ *  - the SPI-NAND chip and its partitions below &qspi
+ *  - &ni: "ports" = <MDIO-address NI-port> pairs (MDIO addresses 1 to 4 are
+ *    the internal GbE PHYs), the optional "realtek,rtl8221b-ports" = NI ports
+ *    whose PHY is an RTL8221B behind the 2.5G SerDes, and
+ *    "mac-flash-offsets" = flash offsets (in the first spi-nand device) of
+ *    the factory MAC address copies; without it the MAC is random
+ */
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <1>;
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		clock-frequency = <25000000>;
+	};
+
+	uart0: serial@f43291b0 {
+		bootph-all;
+		compatible = "cortina,ca-uart";
+		reg = <0x0 0xf43291b0 0x30>;
+		status = "okay";
+	};
+
+	watchdog@f432901c {
+		compatible = "realtek,rtl9607dq-wdt";
+		reg = <0x0 0xf432901c 0x30>,
+		      <0x0 0xf43200c0 0x4>;
+		clock-frequency = <125000000>;
+	};
+
+	qspi: spi@f4324000 {
+		compatible = "cortina,ca-qspi";
+		reg = <0x0 0xf4324000 0x50>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	ni: ethernet@f4300000 {
+		compatible = "realtek,rtl9607dq-ni";
+		reg = <0x0 0xf4300000 0x10000>,
+		      <0x0 0xf4329118 0x20>,
+		      <0x0 0xf4500000 0x2000>,
+		      <0x0 0xf4600000 0x1000>,
+		      <0x0 0xf4320000 0x400>,
+		      <0x0 0xf433a000 0x2000>;
+	};
+};

@@ -1,0 +1,39 @@
+diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
+index 1b474a34..54c70e2b 100644
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -637,6 +637,13 @@ config ARCH_AT91
+ 	select SPL_SEPARATE_BSS if SPL
+ 	imply SYS_THUMB_BUILD
+ 
++config ARCH_CORTINA
++	bool "Cortina Access SoCs"
++	select DM
++	select OF_CONTROL
++	help
++	  Support for the Cortina Access SoCs, including the Realtek RTL9607DQ.
++
+ config ARCH_DAVINCI
+ 	bool "TI DaVinci"
+ 	select CPU_ARM926EJS
+@@ -2309,6 +2316,8 @@ source "arch/arm/mach-bcmbca/Kconfig"
+ 
+ source "arch/arm/mach-bcmstb/Kconfig"
+ 
++source "arch/arm/mach-cortina/Kconfig"
++
+ source "arch/arm/mach-davinci/Kconfig"
+ 
+ source "arch/arm/mach-exynos/Kconfig"
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 37d3b6fd..e68aeadc 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1127,6 +1127,7 @@ dtb-$(CONFIG_TARGET_POMELO) += phytium-pomelo.dtb
+ dtb-$(CONFIG_TARGET_PE2201) += phytium-pe2201.dtb
+ 
+ dtb-$(CONFIG_TARGET_PRESIDIO_ASIC) += ca-presidio-engboard.dtb
++dtb-$(CONFIG_TARGET_VSOL_HG325AX30) += rtl9607dq-vsol-hg325ax30.dtb
+ 
+ dtb-$(CONFIG_TARGET_GXP) += hpe-bmc-dl360gen10.dts
+ 

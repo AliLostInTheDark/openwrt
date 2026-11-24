@@ -1,0 +1,31 @@
+diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
+index 007ad5e7..f5592f15 100644
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -160,6 +160,14 @@ config CORTINA_SFLASH
+ 	  can be used to access the SPI NOR/NAND flash on platforms embedding this
+ 	  Cortina-Access IP core.
+ 
++config CORTINA_QSPI
++	bool "Cortina Access / Realtek RTL9607DQ QSPI controller driver"
++	depends on DM_SPI
++	select SPI_MEM
++	help
++	  Enable the PIO QSPI flash controller found on the Realtek RTL9607DQ
++	  (Taurus) SoC. Only the spi-mem op set used by SPI-NAND is supported.
++
+ config CADENCE_QSPI
+ 	bool "Cadence QSPI driver"
+ 	select SPI_MEM
+diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
+index 13d9c5dc..90a6d5df 100644
+--- a/drivers/spi/Makefile
++++ b/drivers/spi/Makefile
+@@ -33,6 +33,7 @@ obj-$(CONFIG_BCM63XX_SPI) += bcm63xx_spi.o
+ obj-$(CONFIG_BCMSTB_SPI) += bcmstb_spi.o
+ obj-$(CONFIG_CF_SPI) += cf_spi.o
+ obj-$(CONFIG_CORTINA_SFLASH) += ca_sflash.o
++obj-$(CONFIG_CORTINA_QSPI) += cortina_qspi.o
+ obj-$(CONFIG_CV1800B_SPIF) += cv1800b_spif.o
+ obj-$(CONFIG_DAVINCI_SPI) += davinci_spi.o
+ obj-$(CONFIG_$(PHASE_)DESIGNWARE_SPI) += designware_spi.o

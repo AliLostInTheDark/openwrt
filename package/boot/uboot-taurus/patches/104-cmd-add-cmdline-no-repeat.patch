@@ -1,0 +1,32 @@
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index ff90a870..d045cbb6 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -55,6 +55,14 @@ config CMDLINE_FLUSH_STDIN
+ 	  (e.g. from nulldev to serial) and junk characters may be pending
+ 	  in the buffer.
+ 
++config CMDLINE_NO_REPEAT
++	bool "Do not repeat the last command on an empty line"
++	depends on HUSH_PARSER
++	help
++	  By default an empty command line repeats the previous command.
++	  Select this to make it do nothing, which avoids accidentally
++	  repeating a flash write or erase.
++
+ config CMDLINE_EDITING
+ 	bool "Enable command line editing"
+ 	default y
+diff --git a/common/cli_hush.c b/common/cli_hush.c
+index fe8fe93b..32632195 100644
+--- a/common/cli_hush.c
++++ b/common/cli_hush.c
+@@ -1050,7 +1050,7 @@ static void get_user_input(struct in_str *i)
+ 		else {
+ 			if (console_buffer[0] != '\n') {
+ 				strcpy(the_command,console_buffer);
+-				flag_repeat = 1;
++				flag_repeat = !IS_ENABLED(CONFIG_CMDLINE_NO_REPEAT);
+ 			}
+ 			else {
+ 				do_repeat = 1;

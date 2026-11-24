@@ -1,0 +1,30 @@
+diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
+index faa08e9e..51d2929c 100644
+--- a/drivers/net/Kconfig
++++ b/drivers/net/Kconfig
+@@ -167,6 +167,13 @@ config BCMGENET
+ 
+ source "drivers/net/bnxt/Kconfig"
+ 
++config RTL9607DQ_ETH
++	bool "Realtek RTL9607DQ Ethernet driver"
++	depends on DM_ETH && PHYLIB
++	help
++	  This driver supports the CPU management port of the Realtek
++	  RTL9607DQ (Taurus) network interface, one LAN port at a time.
++
+ config CORTINA_NI_ENET
+ 	bool "Cortina-Access Ethernet driver"
+ 	depends on CORTINA_PLATFORM
+diff --git a/drivers/net/Makefile b/drivers/net/Makefile
+index 4c1f4094..0aaf5a27 100644
+--- a/drivers/net/Makefile
++++ b/drivers/net/Makefile
+@@ -14,6 +14,7 @@ obj-$(CONFIG_BCMGENET) += bcmgenet.o
+ obj-$(CONFIG_BNXT_ETH) += bnxt/
+ obj-$(CONFIG_CALXEDA_XGMAC) += calxedaxgmac.o
+ obj-$(CONFIG_CORTINA_NI_ENET) += cortina_ni.o
++obj-$(CONFIG_RTL9607DQ_ETH) += rtl9607dq_eth.o
+ obj-$(CONFIG_DM_ETH_PHY) += eth-phy-uclass.o
+ obj-$(CONFIG_DRIVER_DM9000) += dm9000x.o
+ obj-$(CONFIG_DSA_SANDBOX) += dsa_sandbox.o
