@@ -1,0 +1,21 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+boot() {
+	local count
+
+	case "$(board_name)" in
+	vsol,hg325ax30)
+		# U-Boot counts every boot and stops at its prompt after too many
+		# in a row; a boot that got this far is good.
+		[ -e /etc/fw_env.config ] || return 0
+		# Until U-Boot has saved its environment there is no count, and
+		# fw_setenv would write its own defaults over the empty volumes.
+		count="$(fw_printenv -n bootcount 2>/dev/null)"
+		if [ -n "$count" ] && [ "$count" != 0 ]; then
+			fw_setenv bootcount 0
+		fi
+		;;
+	esac
+}

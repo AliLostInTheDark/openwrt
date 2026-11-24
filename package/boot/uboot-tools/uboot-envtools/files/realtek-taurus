@@ -1,16 +1,27 @@
-[ -e /etc/config/ubootenv ] && exit 0
-
+# sysupgrade keeps /etc/config, so the layout is generated again: the
+# environment volumes of U-Boot may have appeared with the upgrade.
+rm -f /etc/config/ubootenv /etc/fw_env.config
 touch /etc/config/ubootenv
 
 . /lib/uboot-envtools.sh
 . /lib/functions.sh
+. /lib/upgrade/nand.sh
 
 board=$(board_name)
 
 case "$board" in
 vsol,hg325ax30)
-	ubootenv_add_mtd "env" "0x0" "0x40000" "0x20000" 2
-	ubootenv_add_mtd "env2" "0x0" "0x40000" "0x20000" 2
+	envubi=$(nand_find_ubi ubi_device)
+	envvol=$(nand_find_volume "$envubi" ubootenv)
+	envvol2=$(nand_find_volume "$envubi" ubootenv2)
+	if [ -n "$envvol" ] && [ -n "$envvol2" ]; then
+		ubootenv_add_uci_config "/dev/$envvol" "0x0" "0x1f000" "0x1f000" "1"
+		ubootenv_add_uci_config "/dev/$envvol2" "0x0" "0x1f000" "0x1f000" "1"
+	else
+		# the vendor U-Boot's environment, until the first upgrade
+		ubootenv_add_mtd "env" "0x0" "0x40000" "0x20000" 2
+		ubootenv_add_mtd "env2" "0x0" "0x40000" "0x20000" 2
+	fi
 	;;
 esac
 

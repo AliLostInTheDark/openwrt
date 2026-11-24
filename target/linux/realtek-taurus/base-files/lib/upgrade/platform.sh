@@ -1,21 +1,29 @@
 REQUIRE_IMAGE_METADATA=1
-RAMFS_COPY_BIN='fw_printenv fw_setenv'
-RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
-# The vendor U-Boot boots image A (ubi_k0) or B (ubi_k1) by sw_commit;
-# sw_tryactive 2 means no trial boot (which would arm a 60 s watchdog).
-# OpenWrt lives in A; stock firmware in B is left alone, as are ubi_Config,
-# ubi_framework1/2 and ubi_apps. Stock's A rootfs volume makes room for
-# rootfs and rootfs_data.
+# The stock firmware is gone for good: the first upgrade removes its volumes,
+# which gives rootfs_data their space, and adds the two volumes (one LEB each)
+# that hold the environment of U-Boot. ubi_k0 is OpenWrt's kernel and ubi_DTB0
+# stays with it, the vendor U-Boot in the standby FIP still reads both.
+vsol_hg325ax30_volumes() {
+	local ubidev="$1" vol
+
+	for vol in ubi_Config ubi_DTB1 ubi_k1 ubi_r0 ubi_r1 \
+		   ubi_framework1 ubi_framework2 ubi_apps; do
+		[ -n "$(nand_find_volume "$ubidev" "$vol")" ] || continue
+		ubirmvol "/dev/$ubidev" -N "$vol" || return 1
+	done
+
+	for vol in ubootenv ubootenv2; do
+		[ -n "$(nand_find_volume "$ubidev" "$vol")" ] ||
+			ubimkvol "/dev/$ubidev" -N "$vol" -S 1 || return 1
+	done
+}
+
 vsol_hg325ax30_prepare() {
 	local ubidev
 
 	ubidev="$(nand_attach_ubi "$CI_UBIPART")" || return 1
-	if [ -n "$(nand_find_volume "$ubidev" ubi_r0)" ]; then
-		ubirmvol "/dev/$ubidev" -N ubi_r0 || return 1
-	fi
-	fw_setenv sw_commit 0 && fw_setenv sw_active 0 &&
-		fw_setenv sw_tryactive 2
+	vsol_hg325ax30_volumes "$ubidev"
 }
 
 # While the image is written only the upgrade LED (PON LOS) blinks: the PON,
@@ -50,7 +58,7 @@ platform_do_upgrade() {
 		CI_UBIPART="ubi_device"
 		CI_KERNPART="ubi_k0"
 		vsol_hg325ax30_prepare || {
-			echo "cannot prepare image A"
+			echo "cannot prepare the UBI volumes"
 			return 1
 		}
 		nand_do_upgrade "$1"
