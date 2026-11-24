@@ -8,6 +8,7 @@
  * word is a sign bit, eight integer bits and ten bits of milli-degrees.
  */
 
+#include <linux/arm-smccc.h>
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/delay.h>
@@ -37,9 +38,38 @@
 #define TMS_DEVIATION_MC	5000
 #define TMS_SETTLE_MS		300
 
+/*
+ * Cortina BL31 ca_svc SMC 0x82001108 scales DDR3 tREF by die temperature
+ * (<75 C: 1x, 75-84 C: 2x, >=85 C: 4x). Argument x1=1 indicates the sensor
+ * is already initialized by Linux.
+ */
+#define CORTINA_SMC_TREF_TUNING	0x82001108
+
 struct cortina_thermal {
 	void __iomem *base;
+	bool tref_supported;
+	int tref_band;
 };
+
+static void cortina_thermal_tune_tref(struct cortina_thermal *ct, int temp_mc)
+{
+	struct arm_smccc_res res;
+	int band;
+
+	if (!ct->tref_supported)
+		return;
+
+	band = temp_mc >= 85000 ? 2 : temp_mc >= 75000 ? 1 : 0;
+	if (band == ct->tref_band)
+		return;
+
+	arm_smccc_smc(CORTINA_SMC_TREF_TUNING, 1, 0, 0, 0, 0, 0, 0, &res);
+	if ((long)res.a0 == SMCCC_RET_NOT_SUPPORTED) {
+		ct->tref_supported = false;
+		return;
+	}
+	ct->tref_band = band;
+}
 
 static int cortina_thermal_get_temp(struct thermal_zone_device *tz, int *temp)
 {
@@ -52,6 +82,7 @@ static int cortina_thermal_get_temp(struct thermal_zone_device *tz, int *temp)
 		frac = -frac;
 
 	*temp = whole * 1000 + frac - TMS_DEVIATION_MC;
+	cortina_thermal_tune_tref(ct, *temp);
 	return 0;
 }
 
@@ -83,6 +114,9 @@ static int cortina_thermal_probe(struct platform_device *pdev)
 	writel(TMS_CTRL_C_RESET, ct->base + TMS_CTRL_C);
 	writel(TMS_CTRL_C_RUN, ct->base + TMS_CTRL_C);
 	msleep(TMS_SETTLE_MS);
+
+	ct->tref_supported = true;
+	ct->tref_band = -1;
 
 	tz = devm_thermal_of_zone_register(dev, 0, ct, &cortina_thermal_ops);
 	if (IS_ERR(tz))
