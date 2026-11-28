@@ -1,5 +1,8 @@
 REQUIRE_IMAGE_METADATA=1
 
+RAMFS_COPY_BIN='fw_printenv fw_setenv'
+RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
+
 # The stock firmware is gone for good: the first upgrade removes its volumes,
 # which gives rootfs_data their space, and adds the two volumes (one LEB each)
 # that hold the environment of U-Boot. ubi_k0 is OpenWrt's kernel and ubi_DTB0
@@ -24,6 +27,14 @@ vsol_hg325ax30_prepare() {
 
 	ubidev="$(nand_attach_ubi "$CI_UBIPART")" || return 1
 	vsol_hg325ax30_volumes "$ubidev"
+}
+
+# U-Boot counts the boots of the new image until /etc/init.d/bootcount clears
+# upgrade_available. Only its own environment has bootlimit: neither the vendor
+# one nor the empty volumes of a first upgrade are written.
+vsol_hg325ax30_arm_bootcount() {
+	[ -n "$(fw_printenv -n bootlimit 2>/dev/null)" ] || return 0
+	printf 'bootcount 0\nupgrade_available 1\n' | fw_setenv -s -
 }
 
 # While the image is written only the upgrade LED (PON LOS) blinks: the PON,
@@ -61,6 +72,7 @@ platform_do_upgrade() {
 			echo "cannot prepare the UBI volumes"
 			return 1
 		}
+		vsol_hg325ax30_arm_bootcount
 		nand_do_upgrade "$1"
 		;;
 	*)

@@ -10,10 +10,14 @@ OLT.
 Unlike a bridge-only ONU, this is a **router**: it does PPPoE/IPoE, NAT, DHCP, IPv6
 prefix delegation, firewalling and Wi-Fi itself.
 
-**Before you start:** installing replaces the stock image in slot A and creates new
-UBI volumes. Stock stays in slot B and is the way back. Take a full flash backup
-first, and read [Back to stock](#back-to-stock) and [Recovery](#recovery). The
-backup contains your ISP credentials and factory calibration: keep it private.
+The boot chain is open too, apart from the mask ROM (BL1) and BL2, which holds
+the closed DDR3 training: BL31 is mainline Trusted Firmware-A v2.14 and BL33 is
+mainline U-Boot 2026.10.
+
+**Before you start:** installing removes the stock firmware from the flash. The
+only way back is a full flash backup, so take one first, and read
+[Back to stock](#back-to-stock) and [Recovery](#recovery). The backup contains
+your ISP credentials and factory calibration: keep it private.
 
 ## Supported hardware
 
@@ -33,7 +37,8 @@ backup contains your ISP credentials and factory calibration: keep it private.
 - [Status](#status) and [Features](#features)
 - [How it works](#how-it-works)
 - [Stock firmware compared](#stock-firmware-compared) and [Measured performance](#measured-performance)
-- [Flash layout](#flash-layout) and [Installation](#installation)
+- [Flash layout](#flash-layout) and [Installation](#installation), with the
+  [open bootloaders](#6-install-the-open-bootloaders)
 - [Configuration](#configuration), [Updates](#updates), [Back to stock](#back-to-stock) and [Recovery](#recovery)
 - [Diagnostics](#diagnostics) and [Building](#building)
 - [Credits and license](#credits-and-license)
@@ -53,7 +58,9 @@ backup contains your ISP credentials and factory calibration: keep it private.
 | USB 3.0 storage and tethering drivers | Storage tested; tethering drivers are in the image |
 | LEDs, buttons, temperature sensors | PON, LOS, Internet, LAN, phone and USB LEDs follow their state |
 | LuCI, `sysupgrade`, statistics | Status pages for the PON and voice, collectd graphs |
-| Install to flash and `sysupgrade` | OpenWrt in image A, stock kept in image B |
+| Install to flash and `sysupgrade` | One OpenWrt image; the stock volumes are removed and their space goes to `rootfs_data` |
+| TF-A v2.14 BL31 and U-Boot 2026.10 | All four cores, `reboot`, TFTP on lan1 to lan4, boot counter after a sysupgrade |
+| Bootloader fallback | A broken `fip0` boots the vendor bootloaders in `fip1` within 23 s |
 
 ### Implemented, needs testing
 
@@ -71,6 +78,8 @@ backup contains your ISP credentials and factory calibration: keep it private.
 | Wi-Fi clients are not offloaded downstream | The hardware table only knows wired LAN ports, so those flows stay on the CPU |
 | Routed Wi-Fi traffic runs on the CPU | About 300 Mbit/s today; see [Measured performance](#measured-performance) |
 | GPON identity is configuration, not factory data | Serial and password are seeded from the stock configuration on the first boot |
+| BL2 is the vendor's | It holds the DDR3 training, for which there is no source |
+| The FXS firmware is not in the repository | The vendor files cannot be redistributed; the build takes them from your own unit |
 
 ## Features
 
@@ -86,6 +95,9 @@ backup contains your ISP credentials and factory calibration: keep it private.
   call quality and line tests.
 - Per-board factory data in a raw flash partition (`static_conf`) that survives a
   broken UBI volume.
+- Open BL31 and BL33: TF-A v2.14 with PSCI for the four cores, and U-Boot 2026.10
+  with its environment in UBI, TFTP on every LAN port, and a boot counter that
+  stops at the prompt when a new image fails three times.
 - LuCI with PON status, OMCI MIB views, voice, statistics and a package manager.
 
 ## How it works
@@ -101,6 +113,14 @@ over the xPON generic netlink family. Wi-Fi uses `mac80211` with `rtw89`.
 The FXS port uses an ASoC SSP driver, a SLIC SPI driver and the `udsp-slic-dxs`
 plug-in.
 
+At power-on the mask ROM (BL1) starts the vendor BL2, which trains the DRAM and
+loads BL31 from the active FIP, `fip0`. BL2 loads nothing else, so our BL31 reads
+BL33 (U-Boot) from the same FIP itself. U-Boot boots the OpenWrt FIT from
+`ubi_k0`. The FIP's certificate chain is checked, but the SoC has no root key
+burnt in, so a chain signed with your own keys is accepted. BL2 arms a 23 s
+watchdog that U-Boot stops: if BL31 or U-Boot hangs, BL2 boots the standby FIP,
+`fip1`, which keeps the vendor BL31 and U-Boot.
+
 ## Stock firmware compared
 
 The stock firmware is VSOL's V1.0.00 (builds of August 2026) on the same hardware.
@@ -113,9 +133,10 @@ The stock firmware is VSOL's V1.0.00 (builds of August 2026) on the same hardwar
 | Base system | Closed vendor build, vendor kernel and web interface | OpenWrt, Linux 6.18, musl, LuCI |
 | Source | Vendor drivers are binary or vendor GPL drops | All drivers and daemons are source |
 | Management | Vendor web interface, TR-069 | LuCI, ubus, SSH, `cwmpd` for TR-069 |
+| Bootloaders | Vendor BL2, BL31 (TF-A 1.5) and U-Boot 2022.10 | Vendor BL2, TF-A v2.14 BL31, U-Boot 2026.10 |
 | Updates | Vendor images in slot A or B | `sysupgrade` from the shell or LuCI, settings kept |
 | Packages | Fixed | `apk` package manager |
-| Flash | UBI with two image slots | Slot A for OpenWrt, slot B left for stock |
+| Flash | UBI with two image slots | One image; `rootfs_data` has 82 MiB |
 
 ### PON stack
 
@@ -175,14 +196,14 @@ factory partition and one UBI device.
 
 | Area | Purpose |
 | --- | --- |
-| `boot` (0x0, 2 MiB) | Vendor U-Boot (not replaced) |
-| `env`, `env2` | U-Boot environment, including the A/B switches (`sw_commit`, `sw_active`, `sw_tryactive`) |
+| `boot` (0x0, 2 MiB) | GPT, BL1 data, `fip0` (0x40000, 768 KiB: BL2, our BL31 and U-Boot) and `fip1` (0x100000: the vendor FIP, never written) |
+| `env`, `env2` | The vendor U-Boot's environment, used only when `fip1` boots |
 | `static_conf` (0x300000, 256 KiB) | Factory data: MACs, GPON serial, optics calibration, a copy of stock `ubi_Config` |
-| `ubi_device` | UBI: `ubi_DTB0`, `ubi_k0` (OpenWrt FIT, 6 MiB), `rootfs` (squashfs), `rootfs_data` (UBIFS overlay), and the untouched stock volumes |
+| `ubi_device` | UBI: `ubi_DTB0`, `ubi_k0` (OpenWrt FIT, 6 MiB), `rootfs` (squashfs), `rootfs_data` (UBIFS overlay), `ubootenv` and `ubootenv2` (our U-Boot's environment) |
 
-OpenWrt lives in slot A. The stock volumes of slot B, `ubi_Config`,
-`ubi_framework1/2` and `ubi_apps` are never written. U-Boot reads a fixed 6 MiB
-from `ubi_k0`, so that volume keeps its size.
+Linux shows `boot` as one partition; U-Boot splits it so that only `fip0` can be
+written. The vendor U-Boot in `fip1` still reads `ubi_k0` and `ubi_DTB0`, so both
+stay, and `ubi_k0` keeps its 6 MiB.
 
 ## Installation
 
@@ -190,10 +211,12 @@ from `ubi_k0`, so that volume keeps its size.
 
 - A USB serial adapter (3.3 V) on the console, 115200 8N1.
 - A PC with a TFTP server on `192.168.1.100/24`, connected to **lan3**. The vendor
-  U-Boot only uses lan3 for TFTP.
+  U-Boot only uses lan3 for TFTP; our U-Boot uses any LAN port.
 - The initramfs image and the sysupgrade image from a build (see [Building](#building)):
   `openwrt-realtek-taurus-rtl9607dq-vsol_hg325ax30-initramfs-kernel.bin` and
   `openwrt-realtek-taurus-rtl9607dq-vsol_hg325ax30-squashfs-sysupgrade.bin`.
+- For the open bootloaders, the FIP built from your own unit's BL2
+  (see [Building the FIP](#building-the-fip)).
 - Fibre unplugged until the install is done.
 
 ### 2. Back up the whole flash
@@ -202,6 +225,10 @@ Boot the initramfs from RAM (next step) and copy every MTD device to the PC, for
 example with `tftp -p -l /dev/mtdN -r mtdN.bin 192.168.1.100` for each entry in
 `/proc/mtd` (the TFTP server must accept uploads). Check the copies, and keep
 them private: they contain `ubi_Config` with your ISP credentials.
+
+A dump with a programmer is the better backup, because it can be written back
+whatever state the board is in: a WSON8 8x6 mm clip on a CH341A works with
+SNANDer (flashrom does not support SPI NAND). Read the chip twice and compare.
 
 ### 3. Boot from RAM
 
@@ -234,15 +261,32 @@ sha256sum hg325ax30-sysupgrade.bin
 sysupgrade -n -v /tmp/hg325ax30-sysupgrade.bin
 ```
 
-The first flash removes stock's `ubi_r0`, writes `ubi_k0` and creates `rootfs` and
-`rootfs_data`, then sets `sw_commit=0`, `sw_active=0` and `sw_tryactive=2`.
-The PON LOS LED blinks while the image is written. Do not cut power.
+The first flash removes the stock volumes (`ubi_Config`, `ubi_DTB1`, `ubi_k1`,
+`ubi_r0`, `ubi_r1`, `ubi_framework1/2`, `ubi_apps`), creates `ubootenv` and
+`ubootenv2`, writes `ubi_k0` and creates `rootfs` and `rootfs_data`. The PON LOS
+LED blinks while the image is written. Do not cut power. The vendor U-Boot boots
+the new image from `ubi_k0`.
 
 ### 5. First boot
 
 The board comes up at `192.168.1.1`. Set a root password, then connect the fibre.
 The first boot seeds the GPON serial and password from the stock configuration
 kept in `static_conf`.
+
+### 6. Install the open bootloaders
+
+Stop the vendor U-Boot with **Ctrl+A** and write the FIP to `fip0` only:
+
+```text
+tftpboot 0x05000000 hg325ax30-fip0.bin
+nand erase 0x40000 0xc0000
+nand write 0x05000000 0x40000 ${filesize}
+reset
+```
+
+The board now prints `BL31: v2.14.0` and `U-Boot 2026.10 ... hg325ax30`, then
+boots OpenWrt. `fip1` is not touched: if the new FIP does not come up, BL2 boots
+the vendor bootloaders from `fip1` after 23 s and you can write `fip0` again.
 
 ## Configuration
 
@@ -279,8 +323,9 @@ hardware and stay in software.
 ### Voice
 
 The FXS port is provisioned through `uvoice` (LuCI, Telephony). The DXS firmware
-and calibration files are copied from the stock image on the first boot and are
-not shipped here.
+and line coefficients (`fw_dxs.bin`, `bbd.bin`) are installed by the
+`dxs-firmware` package from files you take from your own stock firmware (see
+[Building](#building)).
 
 ### GPON identity
 
@@ -295,25 +340,42 @@ sysupgrade -v /tmp/hg325ax30-sysupgrade.bin
 
 Settings are kept. LuCI's Flash Images page does the same.
 
-## Back to stock
+sysupgrade sets `upgrade_available` in the U-Boot environment, and U-Boot counts
+the boots of the new image until OpenWrt clears it after a good boot. After three
+failed boots in a row it stays at its prompt with the network up. Other boots
+only read the environment.
 
-Stock still lives in slot B. In U-Boot:
+The bootloaders are updated from the U-Boot prompt. Put the new FIP on the TFTP
+server as `hg325ax30-fip0.bin`; the script checks its size (0xc0000) and magic,
+writes only `fip0` and reads it back:
 
 ```text
-setenv sw_commit 1; saveenv; reset
+run upgrade_uboot
+reset
 ```
 
-To return to OpenWrt, set `sw_commit 0` the same way. This path has not been tested separately from the installer.
+## Back to stock
+
+The stock volumes are removed by the first install, so the way back is the full
+flash backup: write the programmer dump back with SNANDer, or restore the MTD
+copies from an initramfs. `fip1` and the vendor environment are never written,
+so the vendor bootloaders are still on the board, but they have no stock image
+left to boot.
 
 ## Recovery
 
-- **Does not boot:** use the serial console, stop in U-Boot with Ctrl+A, switch the
-  slot as above, or load the initramfs image over TFTP on lan3.
+- **New image fails to boot:** after three tries U-Boot stops at its prompt.
+  Load the initramfs over TFTP on any LAN port and flash a working image:
+  `tftpboot ${loadaddr} hg325ax30-initramfs.bin` then `bootm ${loadaddr}`.
+  `setenv bootcount 0; saveenv; reset` retries the normal boot.
+- **Our U-Boot or BL31 does not start:** BL2 boots the vendor bootloaders from
+  `fip1` after 23 s. Stop that U-Boot with Ctrl+A and write `fip0` again as in
+  [Install the open bootloaders](#6-install-the-open-bootloaders).
 - **Lost factory data:** restore `static_conf` from your backup.
 - **Wi-Fi or LAN stuck at boot:** power off fully (not a warm reboot) and wait
   5 seconds.
-- **A programmer is the last resort.** The NAND is a WSON8 package, so common
-  SOIC8 clips do not fit.
+- **A programmer is the last resort.** The NAND is a WSON8 package: use a WSON8
+  8x6 mm clip, not a SOIC8 one.
 
 ## Diagnostics
 
@@ -339,6 +401,43 @@ make -j$(nproc)
 The images are in `bin/targets/realtek-taurus/rtl9607dq/`. Build in a clean
 environment: do not export `STAGING_DIR` or edit `PATH`.
 
+The `dxs-firmware` package needs `fw_dxs.bin` and `bbd.bin` in
+`vsol-local/firmware/dxs/`, and checks their sha256. They are
+`/image/fw_dxs-2.1.3.bin` and `/image/IBB12_R600.BIN` in the stock root file
+system (`ubi_r0` or `ubi_r1`, squashfs); copy them before the first install.
+
+### Building the FIP
+
+The FIP holds BL2, BL31, U-Boot and six certificates. BL2 cannot be
+redistributed, so take it from your own unit: cut `fip0` out of the backup of
+the `boot` partition and unpack it with `fiptool`. BL31 comes from the
+`arm-trusted-firmware-taurus` package, and U-Boot from the
+`u-boot-vsol_hg325ax30_bl33` package (select it under Boot Loaders), which is
+linked at the address BL31 starts it from.
+
+```bash
+make package/boot/arm-trusted-firmware-taurus/compile
+TFA=build_dir/target-aarch64_generic_musl/trusted-firmware-a-vsol_hg325ax30/trusted-firmware-a-2.14
+env PATH="$PWD/staging_dir/toolchain-aarch64_generic_gcc-14.4.0_musl/bin:$PATH" \
+	make -C $TFA CROSS_COMPILE=aarch64-openwrt-linux-musl- PLAT=rtl9607dq \
+	OPENSSL_DIR=/usr certtool fiptool   # again after every compile above
+FIPTOOL=$TFA/build/rtl9607dq/release/tools/fiptool/fiptool
+CERT=$TFA/build/rtl9607dq/release/tools/cert_create/cert_create
+IMG=staging_dir/target-aarch64_generic_musl/image
+
+dd if=mtd0.bin of=fip0-stock.bin bs=4096 skip=64 count=192   # boot, 0x40000 + 0xc0000
+$FIPTOOL unpack --tb-fw bl2.bin fip0-stock.bin
+
+FW="--tb-fw bl2.bin --soc-fw $IMG/vsol_hg325ax30-bl31.bin --nt-fw $IMG/vsol_hg325ax30_bl33-u-boot.bin"
+CRT="--trusted-key-cert tk.crt --soc-fw-key-cert sk.crt --nt-fw-key-cert nk.crt \
+     --tb-fw-cert tb.crt --soc-fw-cert soc.crt --nt-fw-cert nt.crt"
+$CERT -n --tfw-nvctr 0 --ntfw-nvctr 0 $FW $CRT    # -n: new keys each time
+$FIPTOOL create $FW $CRT fip.bin
+cp fip.bin hg325ax30-fip0.bin && truncate -s 786432 hg325ax30-fip0.bin
+```
+
+`upgrade_uboot` wants the file at the full slot size, 0xc0000 bytes.
+
 ## Credits and license
 
 Based on OpenWrt, Linux and LuCI.
@@ -358,6 +457,10 @@ work was done with Claude and published under the GPL.
 **AK Sharma** (https://github.com/AKoo7/openwrt/tree/aot5221zy) wrote the Cortina
 DSA tag and the NI DSA switch driver for the Zyxel AOT-5221ZY, which this port
 uses.
+
+The boot chain uses mainline Trusted Firmware-A (BSD-3-Clause) and mainline
+U-Boot; the RTL9607DQ platform code, U-Boot board and drivers are ours, with the
+Cortina QSPI and serial code credited in their headers.
 
 Other sources: `uvoice` and `udsp` come from `cmonroe/uvoice`; the
 `xpon-agent` and `luci-app-xpon` packages descend from the Airoha GPON OMCI
